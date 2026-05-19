@@ -41,6 +41,7 @@ export interface Room {
   singerIndex: number;
   lastSingerId: string | null;
   lastSongId: string | null;
+  lastGenre: Genre | null;
   totalRounds: number;
   currentRoundNumber: number;
 }
@@ -100,6 +101,7 @@ export function createRoom(socketId: string, playerName: string): Room {
     singerIndex: 0,
     lastSingerId: null,
     lastSongId: null,
+    lastGenre: null,
     totalRounds: 5,
     currentRoundNumber: 0,
   };
@@ -192,6 +194,7 @@ export function resetToLobby(code: string): Room | null {
   room.singerIndex = 0;
   room.lastSingerId = null;
   room.lastSongId = null;
+  room.lastGenre = null;
   room.players.forEach((p) => { p.score = 0; });
   room.chat = [makeSystemMsg("🔄 Zurück in die Lobby.")];
   return room;
@@ -208,6 +211,7 @@ export function startNewGame(code: string): Room | null {
   room.currentRound = null;
   room.currentRoundNumber = 1;
   room.lastSongId = null;
+  room.lastGenre = null;
   room.players.forEach((p) => { p.score = 0; });
   const firstSinger = room.players[singerIndex];
   room.chat = [makeSystemMsg(`🎮 Neues Spiel! ${firstSinger?.name ?? "Spieler 1"} dreht als erstes das Genre-Roulette.`)];
@@ -220,12 +224,18 @@ export function spinGenre(code: string): Room | null {
   // Block if a round is already in progress (not ended)
   if (room.currentRound && room.currentRound.phase !== "ended") return null;
 
-  // Only pick from genres that actually have songs to avoid silent failures
-  const availableGenres = GENRES.filter((g) => getSongsByGenre(g).length > 0);
-  if (!availableGenres.length) return null;
+  // Only pick from genres that actually have songs to avoid silent failures.
+  // Exclude the last played genre to prevent back-to-back repeats.
+  const withSongs = GENRES.filter((g) => getSongsByGenre(g).length > 0);
+  if (!withSongs.length) return null;
+  const availableGenres =
+    withSongs.length > 1 && room.lastGenre
+      ? withSongs.filter((g) => g !== room.lastGenre)
+      : withSongs;
   const genre = availableGenres[Math.floor(Math.random() * availableGenres.length)];
   const song = getRandomSongByGenre(genre, room.lastSongId ?? undefined);
   if (!song) return null;
+  room.lastGenre = genre;
   room.lastSongId = song.id;
 
   room.currentRound = {

@@ -691,54 +691,79 @@ function SingerCard({ song, playerName, round }: {
     );
   }
 
+  const lines = hasRealLyrics(song)
+    ? song.lyricsUntilChorus1.split("\n")
+    : null;
+
   return (
-    <div className="bg-yellow-400/5 border-2 border-yellow-400/30 rounded-3xl p-6 space-y-5">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-yellow-400 flex items-center justify-center text-purple-950 font-black text-sm">
-            {playerName.slice(0, 2).toUpperCase()}
-          </div>
-          <div>
-            <p className="text-yellow-400 text-xs font-bold uppercase tracking-widest">Du singst</p>
-            <p className="text-white/60 text-xs">{playerName}</p>
-          </div>
+    <div
+      className="rounded-3xl border-2 border-yellow-400/40 flex flex-col animate-fade-in"
+      style={{ background: "linear-gradient(160deg, rgba(0,0,0,0.7) 0%, rgba(88,28,135,0.35) 100%)" }}
+    >
+      {/* ── Song header ─────────────────────────────────────────────────────── */}
+      <div className="px-6 pt-6 pb-4 border-b border-white/10 flex items-start justify-between gap-4">
+        <div>
+          <p
+            className="text-xs font-black uppercase tracking-[0.2em] mb-2"
+            style={{ color: "#facc15", textShadow: "0 0 12px rgba(250,204,21,0.6)" }}
+          >
+            🎤 Du singst
+          </p>
+          <h2
+            className="font-black text-2xl sm:text-3xl leading-tight text-white"
+            style={{ textShadow: "0 2px 16px rgba(0,0,0,0.8)" }}
+          >
+            {song.title}
+          </h2>
+          <p className="text-yellow-300/80 font-bold text-base sm:text-lg mt-1">{song.artist}</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-col gap-1.5 shrink-0 mt-1">
           {round.titleFound && (
-            <span className="bg-green-500/20 border border-green-500/30 text-green-300 text-xs font-bold px-2 py-1 rounded-full">Titel ✓</span>
+            <span className="bg-green-500/20 border border-green-500/30 text-green-300 text-xs font-bold px-2 py-1 rounded-full whitespace-nowrap">Titel ✓</span>
           )}
           {round.artistFound && (
-            <span className="bg-blue-500/20 border border-blue-500/30 text-blue-300 text-xs font-bold px-2 py-1 rounded-full">Artist ✓</span>
+            <span className="bg-blue-500/20 border border-blue-500/30 text-blue-300 text-xs font-bold px-2 py-1 rounded-full whitespace-nowrap">Artist ✓</span>
           )}
         </div>
       </div>
 
-      {/* Song info */}
-      <div>
-        <h2 className="text-white font-black text-3xl leading-tight">{song.title}</h2>
-        <p className="text-yellow-300 font-bold text-lg mt-1">{song.artist}</p>
-      </div>
-
-      {/* Lyrics */}
-      <div className="bg-black/30 rounded-2xl p-5 border border-white/10">
-        <p className="text-white/40 text-xs uppercase tracking-widest mb-4 font-semibold">
-          Lyrics bis Ende Chorus 1
-        </p>
-        {hasRealLyrics(song) ? (
-          <pre className="text-white text-base leading-8 whitespace-pre-wrap font-sans">
-            {song.lyricsUntilChorus1}
-          </pre>
+      {/* ── Lyrics ──────────────────────────────────────────────────────────── */}
+      <div className="flex-1 overflow-y-auto px-6 py-6 max-h-[55vh] scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/10">
+        {lines ? (
+          <div className="space-y-1 text-center max-w-2xl mx-auto">
+            {lines.map((line, i) => (
+              line.trim() === "" ? (
+                <div key={i} className="h-5" />
+              ) : (
+                <p
+                  key={i}
+                  className="font-black leading-tight text-white text-3xl sm:text-4xl lg:text-5xl"
+                  style={{
+                    textShadow: "0 0 30px rgba(250,204,21,0.25), 0 2px 8px rgba(0,0,0,0.9)",
+                    letterSpacing: "-0.01em",
+                  }}
+                >
+                  {line}
+                </p>
+              )
+            ))}
+          </div>
         ) : (
-          <p className="text-white/30 italic text-sm text-center py-4">
+          <p className="text-white/30 italic text-lg text-center py-12">
             Lyrics noch nicht eingetragen.
           </p>
         )}
       </div>
 
-      <p className="text-yellow-400/60 text-sm text-center font-semibold">
-        🎵 Singe jetzt — die anderen raten!
-      </p>
+      {/* ── Footer cue ──────────────────────────────────────────────────────── */}
+      <div className="px-6 py-4 border-t border-white/10 text-center">
+        <p
+          className="text-sm font-black uppercase tracking-widest"
+          style={{ color: "#facc15", textShadow: "0 0 10px rgba(250,204,21,0.4)" }}
+        >
+          🎵 Singe jetzt — die anderen raten!
+        </p>
+      </div>
     </div>
   );
 }
