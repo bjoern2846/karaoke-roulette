@@ -15,9 +15,12 @@ The socket server is `server/index.ts`. It runs a combined Next.js + Socket.io p
 
 1. Create a new **Web Service** in Render, connect your GitHub repo.
 2. **Build Command:** `npm install`
-3. **Start Command:** `npm run start`
+3. **Start Command:** `npm run server`
 4. **Environment Variables:**
-   - `PORT` — Render sets this automatically; the server reads it via `process.env.PORT ?? "3000"`
+   - `PORT` — Render sets this automatically
+   - `CORS_ORIGIN` — set to your Vercel frontend URL, e.g. `https://karaoke-roulette.vercel.app`
+     - Multiple URLs: comma-separated `https://app.vercel.app,https://app-preview.vercel.app`
+     - Leave unset (defaults to `*`) if you want to allow all origins
 5. After deploy, copy the service URL, e.g. `https://karaoke-roulette-server.onrender.com`
 
 ---

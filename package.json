@@ -6,6 +6,7 @@
     "dev": "tsx server/index.ts",
     "build": "next build",
     "start": "NODE_ENV=production tsx server/index.ts",
+    "server": "tsx server/standalone.ts",
     "lint": "eslint"
   },
   "dependencies": {
