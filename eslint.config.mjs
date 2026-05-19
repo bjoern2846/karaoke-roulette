@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Socket.io server — Node-only code, not linted by Next.js rules
+    "server/**",
   ]),
 ]);
 
