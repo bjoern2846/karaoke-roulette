@@ -140,6 +140,18 @@ function HomeScreen({
         <p className="text-center text-white/30 text-xs mt-6">
           Keine echten Lyrics. Alles erfunden. Alles Spaß.
         </p>
+
+        <div className="flex justify-center mt-4">
+          <button
+            onClick={async () => {
+              await fetch("/api/logout", { method: "POST" });
+              window.location.href = "/login";
+            }}
+            className="text-white/20 hover:text-white/50 text-xs transition"
+          >
+            🔒 App sperren
+          </button>
+        </div>
       </div>
     </main>
   );
