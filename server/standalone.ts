@@ -20,6 +20,7 @@ import {
   markDisconnected,
   reconnectPlayer,
   autoEndRound,
+  resetSongHistory,
   type Room,
 } from "./roomManager";
 
@@ -229,6 +230,14 @@ io.on("connection", (socket) => {
     clearSpinTimeouts(code);
     stopTimer(code);
     const updated = startNewGame(code);
+    if (updated) broadcastRoom(updated);
+  });
+
+  socket.on("resetSongHistory", (code: string) => {
+    const room = getRoom(code);
+    if (!room) return;
+    if (room.players.find((p) => p.isHost)?.id !== socket.id) return;
+    const updated = resetSongHistory(code);
     if (updated) broadcastRoom(updated);
   });
 

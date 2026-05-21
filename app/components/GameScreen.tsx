@@ -196,6 +196,7 @@ interface GameScreenProps {
   onResetToLobby: () => void;
   onStartNewGame: () => void;
   onLeave: () => void;
+  onResetSongHistory: () => void;
 }
 
 // ─── UI phase derivation ──────────────────────────────────────────────────────
@@ -205,7 +206,7 @@ type UIPhase = "idle" | "spinning" | "revealing" | "singing" | "ended";
 // ─── Root component ───────────────────────────────────────────────────────────
 
 export default function GameScreen(props: GameScreenProps) {
-  const { room, playerName, isHost, isSinger, timeLeft, roundEndData, onSpin, onSendMessage, onNextRound, onResetToLobby, onStartNewGame, onLeave } = props;
+  const { room, playerName, isHost, isSinger, timeLeft, roundEndData, onSpin, onSendMessage, onNextRound, onResetToLobby, onStartNewGame, onLeave, onResetSongHistory } = props;
 
   // Cycling genre display during server-managed "spinning" phase
   const [cyclingGenre, setCyclingGenre] = useState(GENRES[0]);
@@ -279,9 +280,12 @@ export default function GameScreen(props: GameScreenProps) {
       <FinalRankingScreen
         players={room.players}
         isHost={isHost}
+        playedSongsCount={room.playedSongsCount}
+        totalSongsCount={room.totalSongsCount}
         onResetToLobby={onResetToLobby}
         onStartNewGame={onStartNewGame}
         onLeave={onLeave}
+        onResetSongHistory={onResetSongHistory}
       />
     );
   }
@@ -428,6 +432,11 @@ export default function GameScreen(props: GameScreenProps) {
 
           <div className="flex-1" />
 
+          {/* Sound controls */}
+          <div className="bg-white/5 border border-white/10 rounded-2xl p-4">
+            <SoundControls />
+          </div>
+
           {/* Leave */}
           <button
             onClick={onLeave}
@@ -542,6 +551,72 @@ export default function GameScreen(props: GameScreenProps) {
           onNextRound={withClick(onNextRound)}
         />
       )}
+    </div>
+  );
+}
+
+// ─── Sound Controls ───────────────────────────────────────────────────────────
+
+function SoundControls({ compact = false }: { compact?: boolean }) {
+  const [mounted, setMounted] = useState(false);
+  const [muted, setMutedState] = useState(false);
+  const [volume, setVolumeState] = useState(0.7);
+
+  useEffect(() => {
+    setMounted(true);
+    setMutedState(soundManager.isMuted());
+    setVolumeState(soundManager.getVolume());
+  }, []);
+
+  function handleToggleMute() {
+    const m = !muted;
+    soundManager.setMuted(m);
+    setMutedState(m);
+  }
+
+  function handleVolume(e: React.ChangeEvent<HTMLInputElement>) {
+    const v = parseInt(e.target.value) / 100;
+    soundManager.setVolume(v);
+    setVolumeState(v);
+  }
+
+  if (!mounted) return null;
+
+  return (
+    <div className={compact ? "flex items-center gap-2" : "flex flex-col gap-2"}>
+      {!compact && (
+        <div className="flex items-center justify-between">
+          <p className="text-white/40 text-xs font-semibold uppercase tracking-widest">Lautstärke</p>
+          <button
+            onClick={handleToggleMute}
+            className="text-base hover:scale-110 transition-transform"
+            title={muted ? "Ton einschalten" : "Ton ausschalten"}
+          >
+            {muted ? "🔇" : "🔊"}
+          </button>
+        </div>
+      )}
+      {compact && (
+        <button
+          onClick={handleToggleMute}
+          className="text-base hover:scale-110 transition-transform shrink-0"
+          title={muted ? "Ton einschalten" : "Ton ausschalten"}
+        >
+          {muted ? "🔇" : "🔊"}
+        </button>
+      )}
+      <input
+        type="range"
+        min={0}
+        max={100}
+        value={Math.round(volume * 100)}
+        onChange={handleVolume}
+        disabled={muted}
+        className="flex-1 accent-pink-500 disabled:opacity-40 cursor-pointer"
+      />
+      <span className="text-white/50 text-xs font-mono shrink-0 w-8 text-right">
+        {muted ? "—" : `${Math.round(volume * 100)}%`}
+      </span>
     </div>
   );
 }
@@ -972,12 +1047,15 @@ function ChatPanel({ messages, playerName, disabled, placeholder, onSend }: {
 
 // ─── Final Ranking Screen ─────────────────────────────────────────────────────
 
-function FinalRankingScreen({ players, isHost, onResetToLobby, onStartNewGame, onLeave }: {
+function FinalRankingScreen({ players, isHost, playedSongsCount, totalSongsCount, onResetToLobby, onStartNewGame, onLeave, onResetSongHistory }: {
   players: PublicRoomData["players"];
   isHost: boolean;
+  playedSongsCount: number;
+  totalSongsCount: number;
   onResetToLobby: () => void;
   onStartNewGame: () => void;
   onLeave: () => void;
+  onResetSongHistory: () => void;
 }) {
   const sorted = [...players].sort((a, b) => b.score - a.score);
   const first  = sorted[0] ?? null;
@@ -1167,6 +1245,23 @@ function FinalRankingScreen({ players, isHost, onResetToLobby, onStartNewGame, o
             >
               🏠 Zurück zur Lobby
             </button>
+
+            {/* Song history */}
+            <div className="bg-white/5 border border-white/10 rounded-2xl px-4 py-3 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-white/50 text-xs font-semibold">Song-History</p>
+                <p className="text-white/30 text-xs">{playedSongsCount} / {totalSongsCount} Songs gespielt</p>
+              </div>
+              {playedSongsCount > 0 && (
+                <button
+                  onClick={() => { soundManager.play("click"); onResetSongHistory(); }}
+                  className="text-white/40 hover:text-white text-xs font-semibold hover:bg-white/10 rounded-lg px-2.5 py-1.5 transition"
+                >
+                  🔄 Zurücksetzen
+                </button>
+              )}
+            </div>
+
             <button
               onClick={() => { soundManager.play("click"); onLeave(); }}
               className="text-white/30 hover:text-white font-semibold py-2 text-sm transition"

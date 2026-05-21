@@ -41,6 +41,7 @@ export interface UseGameSocketReturn {
   startNewGame: () => void;
   leaveRoom: () => void;
   clearError: () => void;
+  resetSongHistory: () => void;
 }
 
 export function useGameSocket(): UseGameSocketReturn {
@@ -237,9 +238,16 @@ export function useGameSocket(): UseGameSocketReturn {
 
   const clearError = useCallback(() => setError(null), []);
 
+  const resetSongHistory = useCallback(() => {
+    const r = roomRef.current;
+    if (!r) return;
+    getSocket().emit("resetSongHistory", r.code);
+  }, []);
+
   return {
     screen, playerName, room, timeLeft, roundEndData, error, isConnected,
     createRoom, joinRoom, startGame, spinGenre, sendMessage, nextRound,
     setTotalRounds, resetToLobby, startNewGame, leaveRoom, clearError,
+    resetSongHistory,
   };
 }

@@ -23,6 +23,7 @@ import {
   markDisconnected,
   reconnectPlayer,
   autoEndRound,
+  resetSongHistory,
   type Room,
 } from "./roomManager";
 
@@ -282,6 +283,16 @@ app.prepare().then(() => {
       clearSpinTimeouts(code);
       stopTimer(code);
       const updated = startNewGame(code);
+      if (updated) broadcastRoom(io, updated);
+    });
+
+    // ── resetSongHistory ──────────────────────────────────────────────────────
+    socket.on("resetSongHistory", (code: string) => {
+      const room = getRoom(code);
+      if (!room) return;
+      const host = room.players.find((p) => p.isHost);
+      if (host?.id !== socket.id) return;
+      const updated = resetSongHistory(code);
       if (updated) broadcastRoom(io, updated);
     });
 

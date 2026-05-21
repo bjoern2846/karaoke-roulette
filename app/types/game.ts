@@ -40,6 +40,8 @@ export interface PublicRoomData {
   currentRound: PublicRound | null;
   totalRounds: number;
   currentRoundNumber: number;
+  playedSongsCount: number;
+  totalSongsCount: number;
 }
 
 export interface RoundEndData {

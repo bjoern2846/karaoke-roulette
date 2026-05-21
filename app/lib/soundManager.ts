@@ -16,7 +16,22 @@ class SoundManager {
   private buffers = new Map<SoundName, HTMLAudioElement>();
   private unlocked = false;
   private _muted = false;
-  private _volume = 0.8;
+  private _volume = 0.7;
+
+  constructor() {
+    if (typeof window !== "undefined") {
+      try {
+        const v = localStorage.getItem("karaoke_volume");
+        if (v !== null) {
+          const n = parseFloat(v);
+          if (!isNaN(n)) this._volume = Math.max(0, Math.min(1, n));
+        }
+      } catch {}
+      try {
+        this._muted = localStorage.getItem("karaoke_muted") === "true";
+      } catch {}
+    }
+  }
 
   /** Call once on client mount to preload all audio buffers. */
   preload(): void {
@@ -75,8 +90,14 @@ class SoundManager {
     }
   }
 
-  setMuted(m: boolean): void { this._muted = m; }
-  setVolume(v: number): void { this._volume = Math.max(0, Math.min(1, v)); }
+  setMuted(m: boolean): void {
+    this._muted = m;
+    try { localStorage.setItem("karaoke_muted", String(m)); } catch {}
+  }
+  setVolume(v: number): void {
+    this._volume = Math.max(0, Math.min(1, v));
+    try { localStorage.setItem("karaoke_volume", String(this._volume)); } catch {}
+  }
   isMuted(): boolean { return this._muted; }
   getVolume(): number { return this._volume; }
   isUnlocked(): boolean { return this.unlocked; }

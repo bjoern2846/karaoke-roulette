@@ -42,7 +42,7 @@ export interface Room {
   singerIndex: number;
   lastSingerId: string | null;
   playedSongIds: Set<string>; // reset per-genre when that genre's pool exhausted
-  lastGenre: Genre | null;
+  lastSongId: string | null; // prevents direct back-to-back same song
   totalRounds: number;
   currentRoundNumber: number;
 }
@@ -74,8 +74,8 @@ function maskMessage(text: string): string {
   return text.replace(/\S/g, "*");
 }
 
-/** Pick a song for the given genre, avoiding repeats until the genre's pool is exhausted. */
-function pickSongForGenre(room: Room, genre: Genre): Song | null {
+/** Pick a song for the given genre, respecting the global played history and back-to-back prevention. */
+function pickSongForGenre(room: Room, genre: Genre, lastSongId: string | null): Song | null {
   const genreSongs = getSongsByGenre(genre);
   if (!genreSongs.length) return null;
 
@@ -85,6 +85,10 @@ function pickSongForGenre(room: Room, genre: Genre): Song | null {
     for (const s of genreSongs) room.playedSongIds.delete(s.id);
     pool = genreSongs;
   }
+
+  // Avoid direct back-to-back same song (only if alternatives exist)
+  const withoutLast = lastSongId ? pool.filter((s) => s.id !== lastSongId) : pool;
+  if (withoutLast.length > 0) pool = withoutLast;
 
   const song = pool[Math.floor(Math.random() * pool.length)];
   room.playedSongIds.add(song.id);
@@ -133,7 +137,7 @@ export function createRoom(socketId: string, playerName: string): Room {
     singerIndex: 0,
     lastSingerId: null,
     playedSongIds: new Set(),
-    lastGenre: null,
+    lastSongId: null,
     totalRounds: 5,
     currentRoundNumber: 0,
   };
@@ -225,8 +229,8 @@ export function resetToLobby(code: string): Room | null {
   room.currentRoundNumber = 0;
   room.singerIndex = 0;
   room.lastSingerId = null;
-  room.playedSongIds = new Set();
-  room.lastGenre = null;
+  // playedSongIds intentionally kept — history persists across games in same room
+  room.lastSongId = null;
   room.players.forEach((p) => { p.score = 0; p.disconnected = false; });
   room.chat = [makeSystemMsg("🔄 Zurück in die Lobby.")];
   return room;
@@ -242,8 +246,8 @@ export function startNewGame(code: string): Room | null {
   room.lastSingerId = room.players[singerIndex]?.id ?? null;
   room.currentRound = null;
   room.currentRoundNumber = 1;
-  room.playedSongIds = new Set();
-  room.lastGenre = null;
+  // playedSongIds intentionally kept — history persists across games in same room
+  room.lastSongId = null;
   room.players.forEach((p) => { p.score = 0; p.disconnected = false; });
   const firstSinger = room.players[singerIndex];
   room.chat = [makeSystemMsg(`🎮 Neues Spiel! ${firstSinger?.name ?? "Spieler 1"} dreht als erstes das Genre-Roulette.`)];
@@ -257,17 +261,12 @@ export function spinGenre(code: string): Room | null {
   if (room.currentRound && room.currentRound.phase !== "ended") return null;
 
   // Only pick from genres that actually have songs to avoid silent failures.
-  // Exclude the last played genre to prevent back-to-back repeats.
-  const withSongs = GENRES.filter((g) => getSongsByGenre(g).length > 0);
-  if (!withSongs.length) return null;
-  const availableGenres =
-    withSongs.length > 1 && room.lastGenre
-      ? withSongs.filter((g) => g !== room.lastGenre)
-      : withSongs;
+  const availableGenres = GENRES.filter((g) => getSongsByGenre(g).length > 0);
+  if (!availableGenres.length) return null;
   const genre = availableGenres[Math.floor(Math.random() * availableGenres.length)];
-  const song = pickSongForGenre(room, genre);
+  const song = pickSongForGenre(room, genre, room.lastSongId);
   if (!song) return null;
-  room.lastGenre = genre;
+  room.lastSongId = song.id;
 
   room.currentRound = {
     genre,
@@ -499,6 +498,8 @@ export function getRoomData(room: Room, socketId: string): PublicRoomData {
     currentRound: publicRound,
     totalRounds: room.totalRounds,
     currentRoundNumber: room.currentRoundNumber,
+    playedSongsCount: room.playedSongIds.size,
+    totalSongsCount: SONGS.length,
   };
 }
 
@@ -533,6 +534,16 @@ export function reconnectPlayer(socketId: string, playerName: string, roomCode: 
   player.id = socketId;
   player.disconnected = false;
   addToChat(room, makeSystemMsg(`✅ ${playerName} ist wieder verbunden!`));
+  return room;
+}
+
+/** Clear the global song history for the room so all songs become available again. */
+export function resetSongHistory(code: string): Room | null {
+  const room = rooms.get(code);
+  if (!room) return null;
+  room.playedSongIds = new Set();
+  room.lastSongId = null;
+  addToChat(room, makeSystemMsg("🔄 Song-History zurückgesetzt — alle Songs sind wieder verfügbar!"));
   return room;
 }
 

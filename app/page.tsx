@@ -3,6 +3,67 @@
 import { useState, useEffect } from "react";
 import { useGameSocket } from "./hooks/useGameSocket";
 import GameScreen from "./components/GameScreen";
+import { soundManager } from "./lib/soundManager";
+
+// ─── Sound Controls (Lobby) ───────────────────────────────────────────────────
+
+function SoundControls() {
+  const [mounted, setMounted] = useState(false);
+  const [muted, setMutedState] = useState(false);
+  const [volume, setVolumeState] = useState(0.7);
+
+  useEffect(() => {
+    setMounted(true);
+    setMutedState(soundManager.isMuted());
+    setVolumeState(soundManager.getVolume());
+  }, []);
+
+  function handleToggleMute() {
+    const m = !muted;
+    soundManager.setMuted(m);
+    setMutedState(m);
+  }
+
+  function handleVolume(e: React.ChangeEvent<HTMLInputElement>) {
+    const v = parseInt(e.target.value) / 100;
+    soundManager.setVolume(v);
+    setVolumeState(v);
+  }
+
+  if (!mounted) return null;
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-white font-semibold text-sm">Lautstärke</p>
+          <p className="text-white/40 text-xs">App-Sounds</p>
+        </div>
+        <button
+          onClick={handleToggleMute}
+          className="text-xl hover:scale-110 transition-transform"
+          title={muted ? "Ton einschalten" : "Ton ausschalten"}
+        >
+          {muted ? "🔇" : "🔊"}
+        </button>
+      </div>
+      <div className="flex items-center gap-3">
+        <input
+          type="range"
+          min={0}
+          max={100}
+          value={Math.round(volume * 100)}
+          onChange={handleVolume}
+          disabled={muted}
+          className="flex-1 accent-pink-500 disabled:opacity-40 cursor-pointer"
+        />
+        <span className="text-white/60 text-sm font-mono w-10 text-right shrink-0">
+          {muted ? "—" : `${Math.round(volume * 100)}%`}
+        </span>
+      </div>
+    </div>
+  );
+}
 
 // ─── Home Screen ──────────────────────────────────────────────────────────────
 
@@ -165,8 +226,11 @@ function LobbyScreen({
   playerName,
   isHost,
   totalRounds,
+  playedSongsCount,
+  totalSongsCount,
   onStartGame,
   onSetTotalRounds,
+  onResetSongHistory,
   onLeave,
 }: {
   roomCode: string;
@@ -174,8 +238,11 @@ function LobbyScreen({
   playerName: string;
   isHost: boolean;
   totalRounds: number;
+  playedSongsCount: number;
+  totalSongsCount: number;
   onStartGame: () => void;
   onSetTotalRounds: (n: number) => void;
+  onResetSongHistory: () => void;
   onLeave: () => void;
 }) {
   const [copied, setCopied] = useState(false);
@@ -285,6 +352,43 @@ function LobbyScreen({
           </div>
         </div>
 
+        {/* Sound controls */}
+        <div className="bg-white/10 backdrop-blur-md border border-white/20 rounded-3xl p-5 shadow-2xl mb-4">
+          <SoundControls />
+        </div>
+
+        {/* Song history */}
+        {(isHost || playedSongsCount > 0) && (
+          <div className="bg-white/10 backdrop-blur-md border border-white/20 rounded-3xl p-5 shadow-2xl mb-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-white font-semibold text-sm">Song-History</p>
+                <p className="text-white/40 text-xs">
+                  {playedSongsCount} / {totalSongsCount} Songs gespielt
+                </p>
+              </div>
+              {isHost && playedSongsCount > 0 && (
+                <button
+                  onClick={onResetSongHistory}
+                  className="bg-white/10 hover:bg-white/20 text-white/60 hover:text-white text-xs font-semibold rounded-xl px-3 py-2 transition-all active:scale-95"
+                >
+                  🔄 Zurücksetzen
+                </button>
+              )}
+            </div>
+            {/* Progress bar */}
+            <div className="mt-3 h-1.5 bg-white/10 rounded-full overflow-hidden">
+              <div
+                className="h-full rounded-full transition-all duration-500"
+                style={{
+                  width: `${Math.min(100, (playedSongsCount / totalSongsCount) * 100)}%`,
+                  background: "linear-gradient(to right, #a855f7, #ec4899)",
+                }}
+              />
+            </div>
+          </div>
+        )}
+
         <div className="space-y-3">
           {isHost ? (
             <button
@@ -321,6 +425,7 @@ export default function App() {
     screen, playerName, room, timeLeft, roundEndData, error, isConnected,
     createRoom, joinRoom, startGame, spinGenre, sendMessage, nextRound,
     setTotalRounds, resetToLobby, startNewGame, leaveRoom, clearError,
+    resetSongHistory,
   } = useGameSocket();
 
   if (screen === "game" && room) {
@@ -342,6 +447,7 @@ export default function App() {
         onResetToLobby={resetToLobby}
         onStartNewGame={startNewGame}
         onLeave={leaveRoom}
+        onResetSongHistory={resetSongHistory}
       />
     );
   }
@@ -355,8 +461,11 @@ export default function App() {
         playerName={playerName}
         isHost={me?.isHost ?? false}
         totalRounds={room.totalRounds}
+        playedSongsCount={room.playedSongsCount}
+        totalSongsCount={room.totalSongsCount}
         onStartGame={startGame}
         onSetTotalRounds={setTotalRounds}
+        onResetSongHistory={resetSongHistory}
         onLeave={leaveRoom}
       />
     );
