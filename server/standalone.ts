@@ -17,6 +17,9 @@ import {
   setTotalRounds,
   resetToLobby,
   startNewGame,
+  markDisconnected,
+  reconnectPlayer,
+  autoEndRound,
   type Room,
 } from "./roomManager";
 
@@ -37,6 +40,10 @@ const httpServer = createServer((_, res) => {
   res.writeHead(200, { "Content-Type": "text/plain" });
   res.end("Karaoke Roulette socket server\n");
 });
+
+// ─── Disconnect grace timers (key: "roomCode:playerName") ────────────────────
+
+const disconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 const io = new Server(httpServer, {
   path: "/api/socket",
@@ -136,6 +143,13 @@ io.on("connection", (socket) => {
   });
 
   socket.on("leaveRoom", (code: string) => {
+    const room = getRoom(code);
+    const player = room?.players.find((p) => p.id === socket.id);
+    if (player) {
+      const key = `${code}:${player.name}`;
+      const t = disconnectTimers.get(key);
+      if (t) { clearTimeout(t); disconnectTimers.delete(key); }
+    }
     socket.leave(code);
     const result = leaveRoom(socket.id);
     if (result.room) broadcastRoom(result.room);
@@ -165,7 +179,19 @@ io.on("connection", (socket) => {
   socket.on("sendMessage", (data: { roomCode: string; text: string }) => {
     if (!data.text?.trim()) return;
     const result = handleMessage(data.roomCode, socket.id, data.text.trim());
-    if (result) broadcastRoom(result.room);
+    if (!result) return;
+    broadcastRoom(result.room);
+    if (result.titleHit || result.artistHit) {
+      socket.emit("yourGuessCorrect");
+    }
+    if (result.allGuessed) {
+      stopTimer(data.roomCode);
+      const ended = autoEndRound(data.roomCode);
+      if (ended) {
+        io.to(data.roomCode).emit("roundEnded", getEndRoundData(ended));
+        broadcastRoom(ended);
+      }
+    }
   });
 
   socket.on("nextRound", (code: string) => {
@@ -206,11 +232,35 @@ io.on("connection", (socket) => {
     if (updated) broadcastRoom(updated);
   });
 
+  socket.on("reconnectRoom", (data: { playerName: string; roomCode: string }) => {
+    const key = `${data.roomCode}:${data.playerName}`;
+    const t = disconnectTimers.get(key);
+    if (t) { clearTimeout(t); disconnectTimers.delete(key); }
+
+    const room = reconnectPlayer(socket.id, data.playerName, data.roomCode);
+    if (!room) { socket.emit("reconnectFailed"); return; }
+
+    socket.join(data.roomCode);
+    broadcastRoom(room);
+    socket.emit("reconnectSuccess", getRoomData(room, socket.id));
+  });
+
   socket.on("disconnect", () => {
     console.log(`[-] ${socket.id}`);
-    const result = leaveRoom(socket.id);
-    if (result.code) clearSpinTimeouts(result.code);
-    if (result.room) broadcastRoom(result.room);
+    const marked = markDisconnected(socket.id);
+    if (!marked) return;
+
+    const { room, playerName, roomCode } = marked;
+    broadcastRoom(room);
+
+    const key = `${roomCode}:${playerName}`;
+    const t = setTimeout(() => {
+      disconnectTimers.delete(key);
+      const result = leaveRoom(socket.id);
+      if (result.code) clearSpinTimeouts(result.code);
+      if (result.room) broadcastRoom(result.room);
+    }, 60_000);
+    disconnectTimers.set(key, t);
   });
 });
 

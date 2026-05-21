@@ -20,6 +20,9 @@ import {
   setTotalRounds,
   resetToLobby,
   startNewGame,
+  markDisconnected,
+  reconnectPlayer,
+  autoEndRound,
   type Room,
 } from "./roomManager";
 
@@ -29,6 +32,10 @@ const port = parseInt(process.env.PORT ?? "3000", 10);
 
 const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
+
+// ─── Disconnect grace timers (key: "roomCode:playerName") ────────────────────
+
+const disconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 // ─── Per-room spin phase timeouts (chained: spinning → revealing → playing) ───
 
@@ -166,6 +173,14 @@ app.prepare().then(() => {
 
     // ── leaveRoom ─────────────────────────────────────────────────────────────
     socket.on("leaveRoom", (code: string) => {
+      // Cancel any pending reconnect grace timer for this player
+      const room = getRoom(code);
+      const player = room?.players.find((p) => p.id === socket.id);
+      if (player) {
+        const key = `${code}:${player.name}`;
+        const t = disconnectTimers.get(key);
+        if (t) { clearTimeout(t); disconnectTimers.delete(key); }
+      }
       socket.leave(code);
       const result = leaveRoom(socket.id);
       if (result.room) broadcastRoom(io, result.room);
@@ -203,7 +218,21 @@ app.prepare().then(() => {
     socket.on("sendMessage", (data: { roomCode: string; text: string }) => {
       if (!data.text?.trim()) return;
       const result = handleMessage(data.roomCode, socket.id, data.text.trim());
-      if (result) broadcastRoom(io, result.room);
+      if (!result) return;
+      broadcastRoom(io, result.room);
+      // Notify only the guesser who scored — others don't hear the bling
+      if (result.titleHit || result.artistHit) {
+        socket.emit("yourGuessCorrect");
+      }
+      // Auto-end round when all active non-singers have guessed everything
+      if (result.allGuessed) {
+        stopTimer(data.roomCode);
+        const ended = autoEndRound(data.roomCode);
+        if (ended) {
+          io.to(data.roomCode).emit("roundEnded", getEndRoundData(ended));
+          broadcastRoom(io, ended);
+        }
+      }
     });
 
     // ── nextRound ─────────────────────────────────────────────────────────────
@@ -256,12 +285,37 @@ app.prepare().then(() => {
       if (updated) broadcastRoom(io, updated);
     });
 
+    // ── reconnectRoom ─────────────────────────────────────────────────────────
+    socket.on("reconnectRoom", (data: { playerName: string; roomCode: string }) => {
+      const key = `${data.roomCode}:${data.playerName}`;
+      const t = disconnectTimers.get(key);
+      if (t) { clearTimeout(t); disconnectTimers.delete(key); }
+
+      const room = reconnectPlayer(socket.id, data.playerName, data.roomCode);
+      if (!room) { socket.emit("reconnectFailed"); return; }
+
+      socket.join(data.roomCode);
+      broadcastRoom(io, room);
+      socket.emit("reconnectSuccess", getRoomData(room, socket.id));
+    });
+
     // ── disconnect ────────────────────────────────────────────────────────────
     socket.on("disconnect", () => {
       console.log(`[-] ${socket.id}`);
-      const result = leaveRoom(socket.id);
-      if (result.code) clearSpinTimeouts(result.code); // room deleted, cancel spin
-      if (result.room) broadcastRoom(io, result.room);
+      const marked = markDisconnected(socket.id);
+      if (!marked) return; // player not in any room
+
+      const { room, playerName, roomCode } = marked;
+      broadcastRoom(io, room);
+
+      const key = `${roomCode}:${playerName}`;
+      const t = setTimeout(() => {
+        disconnectTimers.delete(key);
+        const result = leaveRoom(socket.id);
+        if (result.code) clearSpinTimeouts(result.code);
+        if (result.room) broadcastRoom(io, result.room);
+      }, 60_000);
+      disconnectTimers.set(key, t);
     });
   });
 

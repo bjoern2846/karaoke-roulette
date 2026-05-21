@@ -248,21 +248,7 @@ export default function GameScreen(props: GameScreenProps) {
     }
   }, [uiPhase, timeLeft]);
 
-  // Correct-guess sound — only for new chat messages, not history on reconnect
-  const prevChatLenRef = useRef<number>(room.chat.length);
-  useEffect(() => {
-    const prev = prevChatLenRef.current;
-    prevChatLenRef.current = room.chat.length;
-    if (room.chat.length <= prev) return; // chat cleared or no new messages
-    const newMsgs = room.chat.slice(prev);
-    const hasGuess = newMsgs.some(
-      (m) => m.isSystem && (
-        m.text.includes("hat den Titel erkannt") ||
-        m.text.includes("hat den Interpreten erkannt")
-      )
-    );
-    if (hasGuess) soundManager.play("correctGuess");
-  }, [room.chat]);
+  // correctGuess sound handled in useGameSocket via "yourGuessCorrect" server event
 
   // Start/stop genre cycling based on server phase
   useEffect(() => {

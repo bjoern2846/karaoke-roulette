@@ -6,6 +6,7 @@ export interface PublicPlayer {
   isHost: boolean;
   score: number;
   isSinger: boolean;
+  disconnected: boolean;
 }
 
 export interface ChatMessage {

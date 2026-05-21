@@ -3,7 +3,7 @@ import {
   GENRES, SONGS, getSongsByGenre, getRandomSongByGenre,
   matchesTitle, matchesArtist,
 } from "../app/data/songs";
-import type { Genre } from "../app/data/songs";
+import type { Genre, Song } from "../app/data/songs";
 import type { ChatMessage, PublicPlayer, PublicRound, PublicRoomData } from "../app/types/game";
 import { SCORING } from "../app/constants/scoring";
 
@@ -18,6 +18,7 @@ interface Player {
   name: string;
   isHost: boolean;
   score: number;
+  disconnected: boolean;
 }
 
 interface RoundState {
@@ -40,7 +41,7 @@ export interface Room {
   chat: InternalChatMsg[];
   singerIndex: number;
   lastSingerId: string | null;
-  lastSongId: string | null;
+  playedSongIds: Set<string>; // reset per-genre when that genre's pool exhausted
   lastGenre: Genre | null;
   totalRounds: number;
   currentRoundNumber: number;
@@ -73,6 +74,37 @@ function maskMessage(text: string): string {
   return text.replace(/\S/g, "*");
 }
 
+/** Pick a song for the given genre, avoiding repeats until the genre's pool is exhausted. */
+function pickSongForGenre(room: Room, genre: Genre): Song | null {
+  const genreSongs = getSongsByGenre(genre);
+  if (!genreSongs.length) return null;
+
+  let pool = genreSongs.filter((s) => !room.playedSongIds.has(s.id));
+  if (!pool.length) {
+    // All songs in this genre played — reset just this genre's entries and start fresh
+    for (const s of genreSongs) room.playedSongIds.delete(s.id);
+    pool = genreSongs;
+  }
+
+  const song = pool[Math.floor(Math.random() * pool.length)];
+  room.playedSongIds.add(song.id);
+  return song;
+}
+
+/** True when every active non-singer has guessed both title and artist. */
+function checkAllGuessed(room: Room): boolean {
+  if (!room.currentRound) return false;
+  const singer = room.players[room.singerIndex];
+  const activeGuessers = room.players.filter(
+    (p) => !p.disconnected && p.name !== singer?.name
+  );
+  if (activeGuessers.length === 0) return false;
+  const { titleGuessers, artistGuessers } = room.currentRound;
+  return activeGuessers.every(
+    (p) => titleGuessers.includes(p.name) && artistGuessers.includes(p.name)
+  );
+}
+
 /** Returns the singerIndex for the next round, skipping the previous singer when possible. */
 function advanceSingerIndex(players: Player[], currentIndex: number, lastSingerId: string | null): number {
   if (players.length <= 1) return 0;
@@ -94,13 +126,13 @@ function addToChat(room: Room, msg: InternalChatMsg): void {
 export function createRoom(socketId: string, playerName: string): Room {
   const room: Room = {
     code: generateCode(),
-    players: [{ id: socketId, name: playerName, isHost: true, score: 0 }],
+    players: [{ id: socketId, name: playerName, isHost: true, score: 0, disconnected: false }],
     phase: "lobby",
     currentRound: null,
     chat: [],
     singerIndex: 0,
     lastSingerId: null,
-    lastSongId: null,
+    playedSongIds: new Set(),
     lastGenre: null,
     totalRounds: 5,
     currentRoundNumber: 0,
@@ -121,7 +153,7 @@ export function joinRoom(
   if (room.players.find((p) => p.name === playerName))
     return { error: `Name "${playerName}" ist bereits vergeben.` };
 
-  room.players.push({ id: socketId, name: playerName, isHost: false, score: 0 });
+  room.players.push({ id: socketId, name: playerName, isHost: false, score: 0, disconnected: false });
   addToChat(room, makeSystemMsg(`👋 ${playerName} ist dem Raum beigetreten!`));
   return { room };
 }
@@ -193,9 +225,9 @@ export function resetToLobby(code: string): Room | null {
   room.currentRoundNumber = 0;
   room.singerIndex = 0;
   room.lastSingerId = null;
-  room.lastSongId = null;
+  room.playedSongIds = new Set();
   room.lastGenre = null;
-  room.players.forEach((p) => { p.score = 0; });
+  room.players.forEach((p) => { p.score = 0; p.disconnected = false; });
   room.chat = [makeSystemMsg("🔄 Zurück in die Lobby.")];
   return room;
 }
@@ -210,9 +242,9 @@ export function startNewGame(code: string): Room | null {
   room.lastSingerId = room.players[singerIndex]?.id ?? null;
   room.currentRound = null;
   room.currentRoundNumber = 1;
-  room.lastSongId = null;
+  room.playedSongIds = new Set();
   room.lastGenre = null;
-  room.players.forEach((p) => { p.score = 0; });
+  room.players.forEach((p) => { p.score = 0; p.disconnected = false; });
   const firstSinger = room.players[singerIndex];
   room.chat = [makeSystemMsg(`🎮 Neues Spiel! ${firstSinger?.name ?? "Spieler 1"} dreht als erstes das Genre-Roulette.`)];
   return room;
@@ -233,10 +265,9 @@ export function spinGenre(code: string): Room | null {
       ? withSongs.filter((g) => g !== room.lastGenre)
       : withSongs;
   const genre = availableGenres[Math.floor(Math.random() * availableGenres.length)];
-  const song = getRandomSongByGenre(genre, room.lastSongId ?? undefined);
+  const song = pickSongForGenre(room, genre);
   if (!song) return null;
   room.lastGenre = genre;
-  room.lastSongId = song.id;
 
   room.currentRound = {
     genre,
@@ -297,6 +328,7 @@ export interface GuessResult {
   artistHit: boolean;
   room: Room;
   systemMessages: ChatMessage[];
+  allGuessed: boolean;
 }
 
 export function handleMessage(code: string, socketId: string, text: string): GuessResult | null {
@@ -387,7 +419,8 @@ export function handleMessage(code: string, socketId: string, text: string): Gue
     userMsg.maskedText = maskMessage(text);
   }
 
-  return { titleHit, artistHit, room, systemMessages };
+  const allGuessed = (titleHit || artistHit) ? checkAllGuessed(room) : false;
+  return { titleHit, artistHit, room, systemMessages, allGuessed };
 }
 
 export function nextRound(code: string): Room | null {
@@ -428,6 +461,7 @@ export function getRoomData(room: Room, socketId: string): PublicRoomData {
     isHost: p.isHost,
     score: p.score,
     isSinger: p.id === singer?.id,
+    disconnected: p.disconnected,
   }));
 
   let publicRound: PublicRound | null = null;
@@ -476,4 +510,37 @@ export function getEndRoundData(room: Room) {
     titleGuessers: room.currentRound?.titleGuessers ?? [],
     artistGuessers: room.currentRound?.artistGuessers ?? [],
   };
+}
+
+/** Mark player as disconnected without removing them. Gives 60 s to reconnect. */
+export function markDisconnected(socketId: string): { room: Room; playerName: string; roomCode: string } | null {
+  for (const [code, room] of rooms.entries()) {
+    const player = room.players.find((p) => p.id === socketId);
+    if (!player) continue;
+    player.disconnected = true;
+    addToChat(room, makeSystemMsg(`⚠️ ${player.name} hat die Verbindung verloren…`));
+    return { room, playerName: player.name, roomCode: code };
+  }
+  return null;
+}
+
+/** Restore a reconnecting player: update socketId, clear disconnected flag. */
+export function reconnectPlayer(socketId: string, playerName: string, roomCode: string): Room | null {
+  const room = rooms.get(roomCode);
+  if (!room) return null;
+  const player = room.players.find((p) => p.name === playerName);
+  if (!player) return null;
+  player.id = socketId;
+  player.disconnected = false;
+  addToChat(room, makeSystemMsg(`✅ ${playerName} ist wieder verbunden!`));
+  return room;
+}
+
+/** End the round immediately (all guessers scored — no need to wait for timer). */
+export function autoEndRound(code: string): Room | null {
+  const room = rooms.get(code);
+  if (!room?.currentRound || room.currentRound.phase !== "playing") return null;
+  room.currentRound.phase = "ended";
+  addToChat(room, makeSystemMsg("🎊 Alle haben geraten! Runde vorzeitig beendet!"));
+  return room;
 }

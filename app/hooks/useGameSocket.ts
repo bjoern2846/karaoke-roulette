@@ -2,9 +2,25 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { getSocket } from "../lib/socket";
+import { soundManager } from "../lib/soundManager";
 import type { PublicRoomData, RoundEndData } from "../types/game";
 
 export type Screen = "home" | "lobby" | "game";
+
+const RECONNECT_KEY = "karaoke_reconnect";
+
+function saveReconnectSession(playerName: string, roomCode: string) {
+  try { localStorage.setItem(RECONNECT_KEY, JSON.stringify({ playerName, roomCode })); } catch {}
+}
+function loadReconnectSession(): { playerName: string; roomCode: string } | null {
+  try {
+    const s = localStorage.getItem(RECONNECT_KEY);
+    return s ? (JSON.parse(s) as { playerName: string; roomCode: string }) : null;
+  } catch { return null; }
+}
+function clearReconnectSession() {
+  try { localStorage.removeItem(RECONNECT_KEY); } catch {}
+}
 
 export interface UseGameSocketReturn {
   screen: Screen;
@@ -36,24 +52,34 @@ export function useGameSocket(): UseGameSocketReturn {
   const [error, setError] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState(false);
 
-  // Keep room in a ref so callbacks always see current value
+  // Refs so event handlers always see current values without re-registering
   const roomRef = useRef<PublicRoomData | null>(null);
+  const screenRef = useRef<Screen>("home");
+  const playerNameRef = useRef<string>("");
+
   useEffect(() => { roomRef.current = room; }, [room]);
+  useEffect(() => { screenRef.current = screen; }, [screen]);
+  useEffect(() => { playerNameRef.current = playerName; }, [playerName]);
 
   useEffect(() => {
     const socket = getSocket();
 
-    function onConnect() { setIsConnected(true); }
+    function onConnect() {
+      setIsConnected(true);
+      // On reconnect (not initial connect when we're already in a room), attempt to rejoin
+      if (screenRef.current === "home") {
+        const saved = loadReconnectSession();
+        if (saved) {
+          socket.emit("reconnectRoom", { playerName: saved.playerName, roomCode: saved.roomCode });
+        }
+      }
+    }
+
     function onDisconnect() { setIsConnected(false); }
 
     function onRoomUpdated(data: PublicRoomData) {
       setRoom(data);
 
-      // Server is single source of truth for round lifecycle.
-      // Clear the local round-end summary whenever the server signals:
-      //   - no active round (currentRound === null → after nextRound)
-      //   - round is playing (new spin → overlay must go away)
-      // Only keep the summary while currentRound.phase === "ended".
       if (!data.currentRound || data.currentRound.phase !== "ended") {
         setRoundEndData(null);
       }
@@ -61,29 +87,41 @@ export function useGameSocket(): UseGameSocketReturn {
       if (data.currentRound?.timeLeft !== undefined) {
         setTimeLeft(data.currentRound.timeLeft);
       } else if (!data.currentRound) {
-        setTimeLeft(60); // reset display to default between rounds
+        setTimeLeft(60);
       }
 
       if (data.phase === "lobby") setScreen("lobby");
       if (data.phase === "game" || data.phase === "gameEnded") setScreen("game");
     }
 
-    function onTimerTick(t: number) {
-      setTimeLeft(t);
-    }
+    function onTimerTick(t: number) { setTimeLeft(t); }
 
-    function onRoundEnded(data: RoundEndData) {
-      setRoundEndData(data);
-    }
+    function onRoundEnded(data: RoundEndData) { setRoundEndData(data); }
 
-    function onError(msg: string) {
-      setError(msg);
-    }
+    function onError(msg: string) { setError(msg); }
 
     function onKicked() {
+      clearReconnectSession();
       setRoom(null);
       setScreen("home");
       setRoundEndData(null);
+    }
+
+    function onYourGuessCorrect() {
+      soundManager.play("correctGuess");
+    }
+
+    function onReconnectSuccess(data: PublicRoomData) {
+      const saved = loadReconnectSession();
+      if (saved) setPlayerName(saved.playerName);
+      setRoom(data);
+      setRoundEndData(null);
+      if (data.phase === "lobby") setScreen("lobby");
+      if (data.phase === "game" || data.phase === "gameEnded") setScreen("game");
+    }
+
+    function onReconnectFailed() {
+      clearReconnectSession();
     }
 
     socket.on("connect", onConnect);
@@ -93,9 +131,11 @@ export function useGameSocket(): UseGameSocketReturn {
     socket.on("roundEnded", onRoundEnded);
     socket.on("error", onError);
     socket.on("kicked", onKicked);
+    socket.on("yourGuessCorrect", onYourGuessCorrect);
+    socket.on("reconnectSuccess", onReconnectSuccess);
+    socket.on("reconnectFailed", onReconnectFailed);
 
-    // Sync initial connection state
-    if (socket.connected) setIsConnected(true);
+    if (socket.connected) onConnect();
 
     return () => {
       socket.off("connect", onConnect);
@@ -105,6 +145,9 @@ export function useGameSocket(): UseGameSocketReturn {
       socket.off("roundEnded", onRoundEnded);
       socket.off("error", onError);
       socket.off("kicked", onKicked);
+      socket.off("yourGuessCorrect", onYourGuessCorrect);
+      socket.off("reconnectSuccess", onReconnectSuccess);
+      socket.off("reconnectFailed", onReconnectFailed);
     };
   }, []);
 
@@ -114,6 +157,7 @@ export function useGameSocket(): UseGameSocketReturn {
     socket.emit("createRoom", name, (res: { room?: PublicRoomData; error?: string }) => {
       if (res.error) { setError(res.error); return; }
       if (res.room) {
+        saveReconnectSession(name, res.room.code);
         setRoom(res.room);
         setScreen("lobby");
       }
@@ -129,6 +173,7 @@ export function useGameSocket(): UseGameSocketReturn {
       (res: { room?: PublicRoomData; error?: string }) => {
         if (res.error) { setError(res.error); return; }
         if (res.room) {
+          saveReconnectSession(name, res.room.code);
           setRoom(res.room);
           setScreen("lobby");
         }
@@ -184,6 +229,7 @@ export function useGameSocket(): UseGameSocketReturn {
   const leaveRoom = useCallback(() => {
     const r = roomRef.current;
     if (r) getSocket().emit("leaveRoom", r.code);
+    clearReconnectSession();
     setRoom(null);
     setScreen("home");
     setRoundEndData(null);
