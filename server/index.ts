@@ -325,7 +325,7 @@ app.prepare().then(() => {
         const result = leaveRoom(socket.id);
         if (result.code) clearSpinTimeouts(result.code);
         if (result.room) broadcastRoom(io, result.room);
-      }, 60_000);
+      }, 300_000); // 5 min grace — mobile WiFi + screen-lock disconnects need extra room
       disconnectTimers.set(key, t);
     });
   });
