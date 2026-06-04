@@ -110,34 +110,38 @@ function HomeScreen({
   }
 
   return (
-    <main className="min-h-screen bg-linear-to-br from-purple-900 via-pink-800 to-indigo-900 flex items-center justify-center p-4">
+    <main className="min-h-screen bg-linear-to-br from-purple-900 via-pink-800 to-indigo-900 flex flex-col items-center justify-center px-4 py-8">
       <div className="w-full max-w-md">
-        <div className="text-center mb-10">
-          <div className="text-6xl mb-3">🎤</div>
-          <h1 className="text-5xl font-black text-white tracking-tight drop-shadow-lg">
+
+        {/* Header */}
+        <div className="text-center mb-8">
+          <div className="text-5xl sm:text-6xl mb-3">🎤</div>
+          <h1 className="text-4xl sm:text-5xl font-black text-white tracking-tight drop-shadow-lg">
             Karaoke<span className="text-yellow-400"> Roulette</span>
           </h1>
-          <p className="mt-3 text-pink-200 text-lg font-medium">
+          <p className="mt-3 text-pink-200 text-base sm:text-lg font-medium">
             Singe. Rate. Gewinne. Repeat.
           </p>
           <div className="mt-2 flex items-center justify-center gap-2">
-            <span className={`w-2 h-2 rounded-full ${connected ? "bg-green-400" : "bg-red-400"}`} />
+            <span className={`w-2 h-2 rounded-full shrink-0 ${connected ? "bg-green-400" : "bg-red-400"}`} />
             <span className="text-white/40 text-xs">
               {connected ? "Verbunden" : "Verbinde..."}
             </span>
           </div>
         </div>
 
-        <div className="bg-white/10 backdrop-blur-md border border-white/20 rounded-3xl p-8 shadow-2xl">
+        {/* Card */}
+        <div className="bg-white/10 backdrop-blur-md border border-white/20 rounded-3xl p-6 sm:p-8 shadow-2xl">
           {error && (
-            <div className="mb-4 bg-red-500/20 border border-red-500/30 rounded-xl px-4 py-3 flex items-center gap-2">
-              <span>⚠️</span>
+            <div className="mb-5 bg-red-500/20 border border-red-500/30 rounded-2xl px-4 py-3 flex items-start gap-2">
+              <span className="shrink-0 mt-0.5">⚠️</span>
               <span className="text-red-300 text-sm font-medium">{error}</span>
             </div>
           )}
 
-          <div className="mb-6">
-            <label className="block text-pink-200 text-sm font-semibold mb-2 uppercase tracking-widest">
+          {/* Name input */}
+          <div className="mb-5">
+            <label className="block text-pink-200 text-xs font-black mb-2 uppercase tracking-widest">
               Dein Spielername
             </label>
             <input
@@ -147,72 +151,74 @@ function HomeScreen({
               onKeyDown={(e) => e.key === "Enter" && handleCreate()}
               placeholder="z.B. RockStar99"
               maxLength={20}
-              className="w-full bg-white/10 border border-white/30 rounded-xl px-4 py-3 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:border-transparent transition"
+              className="w-full bg-white/10 border border-white/30 rounded-2xl px-4 py-3.5 text-white text-base placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:border-transparent transition"
             />
           </div>
 
-          <div className="border-t border-white/20 my-6" />
+          <div className="border-t border-white/20 my-5" />
 
-          <div className="mb-6">
+          {/* Create button */}
+          <div className="mb-5">
             <button
               onClick={handleCreate}
               disabled={!playerName.trim() || !connected}
-              className="w-full bg-yellow-400 hover:bg-yellow-300 disabled:opacity-40 disabled:cursor-not-allowed text-purple-900 font-black text-lg rounded-xl py-3 transition-all active:scale-95 shadow-lg shadow-yellow-400/30"
+              className="w-full min-h-14 bg-yellow-400 hover:bg-yellow-300 disabled:opacity-40 disabled:cursor-not-allowed text-purple-900 font-black text-lg rounded-2xl py-3.5 transition-all active:scale-95 shadow-lg shadow-yellow-400/30"
             >
               🎲 Raum erstellen
             </button>
           </div>
 
-          <div className="flex items-center gap-3 mb-6">
+          {/* Divider */}
+          <div className="flex items-center gap-3 mb-5">
             <div className="flex-1 border-t border-white/20" />
             <span className="text-white/40 text-sm font-medium">oder</span>
             <div className="flex-1 border-t border-white/20" />
           </div>
 
+          {/* Join section */}
           <div>
-            <label className="block text-pink-200 text-sm font-semibold mb-2 uppercase tracking-widest">
+            <label className="block text-pink-200 text-xs font-black mb-2 uppercase tracking-widest">
               Raumcode eingeben
             </label>
-            <div className="flex gap-3">
-              <input
-                type="text"
-                value={joinCode}
-                onChange={(e) => {
-                  setLocalError(null);
-                  clearError();
-                  setJoinCode(e.target.value.toUpperCase().slice(0, 5));
-                }}
-                onKeyDown={(e) => e.key === "Enter" && handleJoin()}
-                placeholder="XXXXX"
-                maxLength={5}
-                className="flex-1 bg-white/10 border border-white/30 rounded-xl px-4 py-3 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent transition font-mono text-center text-lg tracking-widest uppercase"
-              />
-              <button
-                onClick={handleJoin}
-                disabled={!connected}
-                className="bg-pink-500 hover:bg-pink-400 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold rounded-xl px-5 py-3 transition-all active:scale-95 shadow-lg shadow-pink-500/30 whitespace-nowrap"
-              >
-                Beitreten →
-              </button>
-            </div>
+            <input
+              type="text"
+              value={joinCode}
+              onChange={(e) => {
+                setLocalError(null);
+                clearError();
+                setJoinCode(e.target.value.toUpperCase().slice(0, 5));
+              }}
+              onKeyDown={(e) => e.key === "Enter" && handleJoin()}
+              placeholder="XXXXX"
+              maxLength={5}
+              className="w-full bg-white/10 border border-white/30 rounded-2xl px-4 py-3.5 text-white text-xl placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent transition font-mono text-center tracking-[0.4em] uppercase mb-3"
+            />
+            <button
+              onClick={handleJoin}
+              disabled={!connected}
+              className="w-full min-h-14 bg-pink-500 hover:bg-pink-400 disabled:opacity-40 disabled:cursor-not-allowed text-white font-black text-lg rounded-2xl py-3.5 transition-all active:scale-95 shadow-lg shadow-pink-500/30"
+            >
+              Raum beitreten →
+            </button>
           </div>
         </div>
 
+        {/* Footer */}
         <p className="text-center text-white/30 text-xs mt-6">
           Keine echten Lyrics. Alles erfunden. Alles Spaß.
         </p>
-
-        <div className="flex justify-center mt-4">
+        <div className="flex justify-center mt-3 pb-4">
           <button
             onClick={async () => {
               await fetch("/api/logout", { method: "POST" });
               window.location.href = "/login";
             }}
-            className="text-white/20 hover:text-white/50 text-xs transition"
+            className="text-white/20 hover:text-white/50 text-xs transition py-2 px-3"
           >
             🔒 App sperren
           </button>
         </div>
+
       </div>
     </main>
   );
