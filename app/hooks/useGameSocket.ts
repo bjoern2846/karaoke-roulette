@@ -42,6 +42,9 @@ export interface UseGameSocketReturn {
   leaveRoom: () => void;
   clearError: () => void;
   resetSongHistory: () => void;
+  setGameMode: (mode: "online" | "local") => void;
+  buzz: (type: "title" | "artist") => void;
+  judgeBuzz: (type: "title" | "artist", correct: boolean) => void;
 }
 
 export function useGameSocket(): UseGameSocketReturn {
@@ -244,10 +247,28 @@ export function useGameSocket(): UseGameSocketReturn {
     getSocket().emit("resetSongHistory", r.code);
   }, []);
 
+  const setGameMode = useCallback((mode: "online" | "local") => {
+    const r = roomRef.current;
+    if (!r) return;
+    getSocket().emit("setGameMode", { code: r.code, mode });
+  }, []);
+
+  const buzz = useCallback((type: "title" | "artist") => {
+    const r = roomRef.current;
+    if (!r) return;
+    getSocket().emit("buzz", { roomCode: r.code, type });
+  }, []);
+
+  const judgeBuzz = useCallback((type: "title" | "artist", correct: boolean) => {
+    const r = roomRef.current;
+    if (!r) return;
+    getSocket().emit("judgeBuzz", { roomCode: r.code, type, correct });
+  }, []);
+
   return {
     screen, playerName, room, timeLeft, roundEndData, error, isConnected,
     createRoom, joinRoom, startGame, spinGenre, sendMessage, nextRound,
     setTotalRounds, resetToLobby, startNewGame, leaveRoom, clearError,
-    resetSongHistory,
+    resetSongHistory, setGameMode, buzz, judgeBuzz,
   };
 }

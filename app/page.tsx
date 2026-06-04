@@ -228,9 +228,11 @@ function LobbyScreen({
   totalRounds,
   playedSongsCount,
   totalSongsCount,
+  gameMode,
   onStartGame,
   onSetTotalRounds,
   onResetSongHistory,
+  onSetGameMode,
   onLeave,
 }: {
   roomCode: string;
@@ -240,9 +242,11 @@ function LobbyScreen({
   totalRounds: number;
   playedSongsCount: number;
   totalSongsCount: number;
+  gameMode: "online" | "local";
   onStartGame: () => void;
   onSetTotalRounds: (n: number) => void;
   onResetSongHistory: () => void;
+  onSetGameMode: (mode: "online" | "local") => void;
   onLeave: () => void;
 }) {
   const [copied, setCopied] = useState(false);
@@ -352,6 +356,52 @@ function LobbyScreen({
           </div>
         </div>
 
+        {/* Game mode selection */}
+        <div className="bg-white/10 backdrop-blur-md border border-white/20 rounded-3xl p-5 shadow-2xl mb-4">
+          <div className="mb-3">
+            <p className="text-white font-semibold text-sm">Spielmodus</p>
+            <p className="text-white/40 text-xs">Wie wird geraten?</p>
+          </div>
+          {isHost ? (
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => onSetGameMode("online")}
+                className={`rounded-2xl px-4 py-3 text-left transition-all active:scale-95 border ${
+                  gameMode === "online"
+                    ? "bg-yellow-400/20 border-yellow-400/50 text-white"
+                    : "bg-white/5 border-white/10 text-white/50 hover:bg-white/10 hover:text-white/80"
+                }`}
+              >
+                <p className="font-black text-sm">💬 Online</p>
+                <p className="text-xs mt-0.5 opacity-70">Chat-Raten</p>
+              </button>
+              <button
+                onClick={() => onSetGameMode("local")}
+                className={`rounded-2xl px-4 py-3 text-left transition-all active:scale-95 border ${
+                  gameMode === "local"
+                    ? "bg-yellow-400/20 border-yellow-400/50 text-white"
+                    : "bg-white/5 border-white/10 text-white/50 hover:bg-white/10 hover:text-white/80"
+                }`}
+              >
+                <p className="font-black text-sm">🔔 Local</p>
+                <p className="text-xs mt-0.5 opacity-70">Buzzer-Modus</p>
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-3">
+              <span className="text-2xl">{gameMode === "online" ? "💬" : "🔔"}</span>
+              <div>
+                <p className="text-white font-semibold text-sm">
+                  {gameMode === "online" ? "Online Chat Mode" : "Local Buzzer Mode"}
+                </p>
+                <p className="text-white/40 text-xs">
+                  {gameMode === "online" ? "Tippe deine Antwort im Chat" : "Buzzer drücken und laut raten"}
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* Sound controls */}
         <div className="bg-white/10 backdrop-blur-md border border-white/20 rounded-3xl p-5 shadow-2xl mb-4">
           <SoundControls />
@@ -425,7 +475,7 @@ export default function App() {
     screen, playerName, room, timeLeft, roundEndData, error, isConnected,
     createRoom, joinRoom, startGame, spinGenre, sendMessage, nextRound,
     setTotalRounds, resetToLobby, startNewGame, leaveRoom, clearError,
-    resetSongHistory,
+    resetSongHistory, setGameMode, buzz, judgeBuzz,
   } = useGameSocket();
 
   if (screen === "game" && room) {
@@ -448,6 +498,8 @@ export default function App() {
         onStartNewGame={startNewGame}
         onLeave={leaveRoom}
         onResetSongHistory={resetSongHistory}
+        onBuzz={buzz}
+        onJudgeBuzz={judgeBuzz}
       />
     );
   }
@@ -463,9 +515,11 @@ export default function App() {
         totalRounds={room.totalRounds}
         playedSongsCount={room.playedSongsCount}
         totalSongsCount={room.totalSongsCount}
+        gameMode={room.gameMode}
         onStartGame={startGame}
         onSetTotalRounds={setTotalRounds}
         onResetSongHistory={resetSongHistory}
+        onSetGameMode={setGameMode}
         onLeave={leaveRoom}
       />
     );

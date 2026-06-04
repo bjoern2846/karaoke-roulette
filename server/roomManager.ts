@@ -4,7 +4,7 @@ import {
   matchesTitle, matchesArtist,
 } from "../app/data/songs";
 import type { Genre, Song } from "../app/data/songs";
-import type { ChatMessage, PublicPlayer, PublicRound, PublicRoomData } from "../app/types/game";
+import type { ChatMessage, PublicPlayer, PublicRound, PublicRoomData, PublicLocalBuzzerState } from "../app/types/game";
 import { SCORING } from "../app/constants/scoring";
 
 // ─── Internal types ───────────────────────────────────────────────────────────
@@ -21,6 +21,19 @@ interface Player {
   disconnected: boolean;
 }
 
+interface BuzzerSlot {
+  lockedByPlayerId?: string;
+  lockedByPlayerName?: string;
+  solvedByPlayerId?: string;
+  solvedByPlayerName?: string;
+  rejectedPlayerIds: string[];
+}
+
+interface LocalBuzzerState {
+  title: BuzzerSlot;
+  artist: BuzzerSlot;
+}
+
 interface RoundState {
   genre: Genre;
   songId: string;
@@ -31,6 +44,7 @@ interface RoundState {
   titleGuessers: string[];
   artistGuessers: string[];
   roundDeltas: Record<string, number>;
+  localBuzzerState: LocalBuzzerState | null;
 }
 
 export interface Room {
@@ -45,6 +59,7 @@ export interface Room {
   lastSongId: string | null; // prevents direct back-to-back same song
   totalRounds: number;
   currentRoundNumber: number;
+  gameMode: "online" | "local";
 }
 
 // ─── State ────────────────────────────────────────────────────────────────────
@@ -140,6 +155,7 @@ export function createRoom(socketId: string, playerName: string): Room {
     lastSongId: null,
     totalRounds: 5,
     currentRoundNumber: 0,
+    gameMode: "online",
   };
   rooms.set(room.code, room);
   return room;
@@ -278,6 +294,10 @@ export function spinGenre(code: string): Room | null {
     titleGuessers: [],
     artistGuessers: [],
     roundDeltas: {},
+    localBuzzerState: room.gameMode === "local" ? {
+      title: { rejectedPlayerIds: [] },
+      artist: { rejectedPlayerIds: [] },
+    } : null,
   };
 
   const singer = room.players[room.singerIndex];
@@ -448,6 +468,128 @@ export function nextRound(code: string): Room | null {
   return room;
 }
 
+export function setGameMode(code: string, mode: "online" | "local"): Room | null {
+  const room = rooms.get(code);
+  if (!room || room.phase !== "lobby") return null;
+  room.gameMode = mode;
+  return room;
+}
+
+export interface BuzzResult {
+  room: Room;
+  valid: boolean;
+}
+
+export function handleBuzz(
+  code: string,
+  playerId: string,
+  type: "title" | "artist"
+): BuzzResult | null {
+  const room = rooms.get(code);
+  if (!room || room.gameMode !== "local") return null;
+  const round = room.currentRound;
+  if (!round || round.phase !== "playing") return null;
+
+  const singer = room.players[room.singerIndex];
+  if (singer?.id === playerId) return null; // singer cannot buzz
+
+  const player = room.players.find((p) => p.id === playerId);
+  if (!player) return null;
+
+  const bs = round.localBuzzerState!;
+  const slot = bs[type];
+
+  if (slot.solvedByPlayerId) return { room, valid: false };
+  if (slot.lockedByPlayerId) return { room, valid: false };
+  if (slot.rejectedPlayerIds.includes(playerId)) return { room, valid: false };
+
+  slot.lockedByPlayerId = playerId;
+  slot.lockedByPlayerName = player.name;
+
+  return { room, valid: true };
+}
+
+export interface JudgeBuzzResult {
+  room: Room;
+  autoEnd: boolean;
+}
+
+export function handleJudgeBuzz(
+  code: string,
+  singerId: string,
+  type: "title" | "artist",
+  correct: boolean
+): JudgeBuzzResult | null {
+  const room = rooms.get(code);
+  if (!room || room.gameMode !== "local") return null;
+  const round = room.currentRound;
+  if (!round || round.phase !== "playing") return null;
+
+  const singer = room.players[room.singerIndex];
+  if (singer?.id !== singerId) return null; // only current singer may judge
+
+  const bs = round.localBuzzerState!;
+  const slot = bs[type];
+  if (!slot.lockedByPlayerId) return null;
+
+  const guesser = room.players.find((p) => p.id === slot.lockedByPlayerId);
+
+  if (correct) {
+    slot.solvedByPlayerId = slot.lockedByPlayerId;
+    slot.solvedByPlayerName = slot.lockedByPlayerName;
+
+    if (guesser) {
+      const pts = type === "title"
+        ? SCORING.localMode.guessTitle
+        : SCORING.localMode.guessArtist;
+      guesser.score += pts;
+      round.roundDeltas[guesser.name] = (round.roundDeltas[guesser.name] ?? 0) + pts;
+      addToChat(room, makeSystemMsg(
+        `🎯 ${guesser.name} hat ${type === "title" ? "den Titel" : "den Interpreten"} erraten! (+${pts})`
+      ));
+    }
+
+    if (singer) {
+      const singerPts = type === "title"
+        ? SCORING.localMode.singerTitleSolved
+        : SCORING.localMode.singerArtistSolved;
+      singer.score += singerPts;
+      round.roundDeltas[singer.name] = (round.roundDeltas[singer.name] ?? 0) + singerPts;
+      addToChat(room, makeSystemMsg(`🎤 Sänger ${singer.name} bekommt +${singerPts} Punkte!`));
+    }
+
+    if (type === "title") {
+      round.titleFound = true;
+      if (guesser && !round.titleGuessers.includes(guesser.name)) {
+        round.titleGuessers.push(guesser.name);
+      }
+    } else {
+      round.artistFound = true;
+      if (guesser && !round.artistGuessers.includes(guesser.name)) {
+        round.artistGuessers.push(guesser.name);
+      }
+    }
+
+    slot.lockedByPlayerId = undefined;
+    slot.lockedByPlayerName = undefined;
+  } else {
+    if (guesser) {
+      addToChat(room, makeSystemMsg(`❌ ${guesser.name} lag leider falsch!`));
+    }
+    slot.rejectedPlayerIds.push(slot.lockedByPlayerId);
+    slot.lockedByPlayerId = undefined;
+    slot.lockedByPlayerName = undefined;
+  }
+
+  const autoEnd = !!(bs.title.solvedByPlayerId && bs.artist.solvedByPlayerId);
+  if (autoEnd) {
+    round.phase = "ended";
+    addToChat(room, makeSystemMsg("🎊 Titel und Interpret erraten! Runde vorzeitig beendet!"));
+  }
+
+  return { room, autoEnd };
+}
+
 // ─── Sanitize for client ──────────────────────────────────────────────────────
 
 export function getRoomData(room: Room, socketId: string): PublicRoomData {
@@ -471,6 +613,19 @@ export function getRoomData(room: Room, socketId: string): PublicRoomData {
     // During "ended" phase everyone sees the full song (reveal). Otherwise only the singer.
     const songVisible = r.phase === "ended" || (isSinger && genreVisible);
     const song = songVisible ? SONGS.find((s) => s.id === r.songId) ?? null : null;
+    const publicBuzzerState: PublicLocalBuzzerState | null = r.localBuzzerState ? {
+      title: {
+        lockedByPlayerName: r.localBuzzerState.title.lockedByPlayerName,
+        solvedByPlayerName: r.localBuzzerState.title.solvedByPlayerName,
+        iAmRejected: r.localBuzzerState.title.rejectedPlayerIds.includes(socketId),
+      },
+      artist: {
+        lockedByPlayerName: r.localBuzzerState.artist.lockedByPlayerName,
+        solvedByPlayerName: r.localBuzzerState.artist.solvedByPlayerName,
+        iAmRejected: r.localBuzzerState.artist.rejectedPlayerIds.includes(socketId),
+      },
+    } : null;
+
     publicRound = {
       genre: genreVisible ? r.genre : null,
       phase: r.phase,
@@ -481,6 +636,7 @@ export function getRoomData(room: Room, socketId: string): PublicRoomData {
       artistGuessers: r.artistGuessers,
       song,
       roundDeltas: r.roundDeltas,
+      localBuzzerState: publicBuzzerState,
     };
   }
 
@@ -500,6 +656,7 @@ export function getRoomData(room: Room, socketId: string): PublicRoomData {
     currentRoundNumber: room.currentRoundNumber,
     playedSongsCount: room.playedSongIds.size,
     totalSongsCount: SONGS.length,
+    gameMode: room.gameMode,
   };
 }
 
@@ -510,6 +667,7 @@ export function getEndRoundData(room: Room) {
     roundDeltas: room.currentRound?.roundDeltas ?? {},
     titleGuessers: room.currentRound?.titleGuessers ?? [],
     artistGuessers: room.currentRound?.artistGuessers ?? [],
+    gameMode: room.gameMode,
   };
 }
 
@@ -519,6 +677,18 @@ export function markDisconnected(socketId: string): { room: Room; playerName: st
     const player = room.players.find((p) => p.id === socketId);
     if (!player) continue;
     player.disconnected = true;
+
+    // Clear any buzz lock held by this player so others can buzz
+    if (room.currentRound?.localBuzzerState) {
+      const bs = room.currentRound.localBuzzerState;
+      for (const type of ["title", "artist"] as const) {
+        if (bs[type].lockedByPlayerId === socketId) {
+          bs[type].lockedByPlayerId = undefined;
+          bs[type].lockedByPlayerName = undefined;
+        }
+      }
+    }
+
     addToChat(room, makeSystemMsg(`⚠️ ${player.name} hat die Verbindung verloren…`));
     return { room, playerName: player.name, roomCode: code };
   }

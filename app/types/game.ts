@@ -1,6 +1,17 @@
 import type { Song, Genre } from "../data/songs";
 export type { Song, Genre };
 
+export interface PublicBuzzerSlot {
+  lockedByPlayerName?: string;
+  solvedByPlayerName?: string;
+  iAmRejected: boolean;
+}
+
+export interface PublicLocalBuzzerState {
+  title: PublicBuzzerSlot;
+  artist: PublicBuzzerSlot;
+}
+
 export interface PublicPlayer {
   name: string;
   isHost: boolean;
@@ -29,6 +40,8 @@ export interface PublicRound {
   /** Non-null only for the current singer */
   song: Song | null;
   roundDeltas: Record<string, number>;
+  /** Non-null only in local mode */
+  localBuzzerState: PublicLocalBuzzerState | null;
 }
 
 export interface PublicRoomData {
@@ -42,6 +55,7 @@ export interface PublicRoomData {
   currentRoundNumber: number;
   playedSongsCount: number;
   totalSongsCount: number;
+  gameMode: "online" | "local";
 }
 
 export interface RoundEndData {
@@ -49,4 +63,5 @@ export interface RoundEndData {
   roundDeltas: Record<string, number>;
   titleGuessers: string[];
   artistGuessers: string[];
+  gameMode: "online" | "local";
 }

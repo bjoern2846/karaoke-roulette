@@ -197,6 +197,8 @@ interface GameScreenProps {
   onStartNewGame: () => void;
   onLeave: () => void;
   onResetSongHistory: () => void;
+  onBuzz: (type: "title" | "artist") => void;
+  onJudgeBuzz: (type: "title" | "artist", correct: boolean) => void;
 }
 
 // ─── UI phase derivation ──────────────────────────────────────────────────────
@@ -206,7 +208,7 @@ type UIPhase = "idle" | "spinning" | "revealing" | "singing" | "ended";
 // ─── Root component ───────────────────────────────────────────────────────────
 
 export default function GameScreen(props: GameScreenProps) {
-  const { room, playerName, isHost, isSinger, timeLeft, roundEndData, onSpin, onSendMessage, onNextRound, onResetToLobby, onStartNewGame, onLeave, onResetSongHistory } = props;
+  const { room, playerName, isHost, isSinger, timeLeft, roundEndData, onSpin, onSendMessage, onNextRound, onResetToLobby, onStartNewGame, onLeave, onResetSongHistory, onBuzz, onJudgeBuzz } = props;
 
   // Cycling genre display during server-managed "spinning" phase
   const [cyclingGenre, setCyclingGenre] = useState(GENRES[0]);
@@ -499,8 +501,25 @@ export default function GameScreen(props: GameScreenProps) {
             {/* SINGING: Singer or spectator */}
             {uiPhase === "singing" && (
               isSinger
-                ? <SingerCard song={round!.song} playerName={playerName} round={round!} />
-                : <SpectatorCard genre={round!.genre ?? ""} singerName={room.singerName} round={round!} />
+                ? <SingerCard
+                    song={round!.song}
+                    playerName={playerName}
+                    round={round!}
+                    gameMode={room.gameMode}
+                    onJudgeBuzz={onJudgeBuzz}
+                  />
+                : <>
+                    <SpectatorCard genre={round!.genre ?? ""} singerName={room.singerName} round={round!} />
+                    {/* Local buzzer inline — takes full content area, no chat below */}
+                    {room.gameMode === "local" && round!.localBuzzerState && (
+                      <LocalBuzzerPanel
+                        buzzerState={round!.localBuzzerState}
+                        playerName={playerName}
+                        isSinger={false}
+                        onBuzz={onBuzz}
+                      />
+                    )}
+                  </>
             )}
 
             {/* ENDED state (before overlay) — show waiting message */}
@@ -511,20 +530,22 @@ export default function GameScreen(props: GameScreenProps) {
             )}
           </div>
 
-          {/* Chat panel */}
-          <div className="shrink-0 border-t border-white/10 bg-black/20">
-            <ChatPanel
-              messages={room.chat}
-              playerName={playerName}
-              disabled={uiPhase !== "singing" || isSinger}
-              placeholder={
-                isSinger ? "Sänger können nicht raten…"
-                  : uiPhase !== "singing" ? "Warte auf nächste Runde…"
-                  : "Tipp eingeben und Enter drücken…"
-              }
-              onSend={onSendMessage}
-            />
-          </div>
+          {/* Chat panel — online mode only, no DOM node in local mode */}
+          {room.gameMode === "online" && (
+            <div className="shrink-0 border-t border-white/10 bg-black/20">
+              <ChatPanel
+                messages={room.chat}
+                playerName={playerName}
+                disabled={uiPhase !== "singing" || isSinger}
+                placeholder={
+                  isSinger ? "Sänger können nicht raten…"
+                    : uiPhase !== "singing" ? "Warte auf nächste Runde…"
+                    : "Tipp eingeben und Enter drücken…"
+                }
+                onSend={onSendMessage}
+              />
+            </div>
+          )}
         </div>
 
         {/* ── Right sidebar: Leaderboard ────────────────────────────────────── */}
@@ -548,6 +569,7 @@ export default function GameScreen(props: GameScreenProps) {
           players={room.players}
           isHost={isHost}
           isLastRound={room.currentRoundNumber >= room.totalRounds}
+          gameMode={roundEndData.gameMode}
           onNextRound={withClick(onNextRound)}
         />
       )}
@@ -739,10 +761,12 @@ function GenreRevealCard({ genre, singerName, isSinger }: {
 
 // ─── Singer Card ──────────────────────────────────────────────────────────────
 
-function SingerCard({ song, playerName, round }: {
+function SingerCard({ song, playerName, round, gameMode, onJudgeBuzz }: {
   song: Song | null;
   playerName: string;
   round: NonNullable<PublicRoomData["currentRound"]>;
+  gameMode: "online" | "local";
+  onJudgeBuzz: (type: "title" | "artist", correct: boolean) => void;
 }) {
   if (!song) {
     return (
@@ -825,6 +849,40 @@ function SingerCard({ song, playerName, round }: {
           🎵 Singe jetzt — die anderen raten!
         </p>
       </div>
+
+      {/* ── Judge panel (local mode only) ───────────────────────────────────── */}
+      {gameMode === "local" && round.localBuzzerState && (
+        <div className="px-4 sm:px-6 pb-4 sm:pb-6 space-y-3">
+          {(["title", "artist"] as const).map((type) => {
+            const slot = round.localBuzzerState![type];
+            if (!slot.lockedByPlayerName) return null;
+            return (
+              <div
+                key={type}
+                className="bg-orange-500/15 border-2 border-orange-500/40 rounded-2xl p-4 sm:p-5"
+              >
+                <p className="text-orange-200 font-black text-base sm:text-lg mb-4 text-center">
+                  🔔 <span className="text-white">{slot.lockedByPlayerName}</span> rät den {type === "title" ? "Titel" : "Interpreten"}
+                </p>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => onJudgeBuzz(type, true)}
+                    className="flex-1 min-h-16 bg-green-500 hover:bg-green-400 active:scale-95 text-white font-black text-xl rounded-2xl transition-all shadow-xl shadow-green-500/30"
+                  >
+                    ✓ Richtig
+                  </button>
+                  <button
+                    onClick={() => onJudgeBuzz(type, false)}
+                    className="flex-1 min-h-16 bg-red-500 hover:bg-red-400 active:scale-95 text-white font-black text-xl rounded-2xl transition-all shadow-xl shadow-red-500/30"
+                  >
+                    ✗ Falsch
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -872,6 +930,123 @@ function SpectatorCard({ genre, singerName, round }: {
         <p className="text-pink-200 font-bold text-lg">🎧 Höre zu und rate den Song!</p>
         <p className="text-white/30 text-sm">Tippe deinen Tipp unten im Chat ↓</p>
       </div>
+    </div>
+  );
+}
+
+// ─── Local Buzzer Panel ───────────────────────────────────────────────────────
+
+function LocalBuzzerPanel({ buzzerState, playerName, isSinger, onBuzz }: {
+  buzzerState: NonNullable<PublicRoomData["currentRound"]>["localBuzzerState"] & object;
+  playerName: string;
+  isSinger: boolean;
+  onBuzz: (type: "title" | "artist") => void;
+}) {
+  if (isSinger) return null;
+
+  const titleSlot = buzzerState.title;
+  const artistSlot = buzzerState.artist;
+
+  const iAmLockedTitle = titleSlot.lockedByPlayerName === playerName;
+  const iAmLockedArtist = artistSlot.lockedByPlayerName === playerName;
+
+  const titleDisabled = !!titleSlot.solvedByPlayerName || !!titleSlot.lockedByPlayerName || titleSlot.iAmRejected;
+  const artistDisabled = !!artistSlot.solvedByPlayerName || !!artistSlot.lockedByPlayerName || artistSlot.iAmRejected;
+
+  return (
+    <div className="rounded-3xl border border-white/10 bg-white/5 p-4 sm:p-6 space-y-4">
+
+      {/* Header */}
+      <p className="text-white/40 text-xs font-black uppercase tracking-widest text-center">🔔 Buzzer</p>
+
+      {/* Solved badges */}
+      {(titleSlot.solvedByPlayerName || artistSlot.solvedByPlayerName) && (
+        <div className="flex gap-2 flex-wrap justify-center">
+          {titleSlot.solvedByPlayerName && (
+            <span className="bg-green-500/20 border border-green-500/30 text-green-300 text-sm font-bold px-4 py-2 rounded-full">
+              🎯 Titel: {titleSlot.solvedByPlayerName}
+            </span>
+          )}
+          {artistSlot.solvedByPlayerName && (
+            <span className="bg-blue-500/20 border border-blue-500/30 text-blue-300 text-sm font-bold px-4 py-2 rounded-full">
+              🎵 Interpret: {artistSlot.solvedByPlayerName}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* My turn — big prominent banner */}
+      {(iAmLockedTitle || iAmLockedArtist) && (
+        <div className="bg-yellow-400/25 border-2 border-yellow-400/60 rounded-2xl px-4 py-4 text-center">
+          <p className="text-yellow-300 font-black text-lg animate-pulse">
+            🎤 Du bist dran!
+          </p>
+          <p className="text-yellow-200/70 text-sm mt-1">Sag deine Antwort laut!</p>
+        </div>
+      )}
+
+      {/* Lock notices */}
+      <div className="space-y-1.5">
+        {!iAmLockedTitle && titleSlot.lockedByPlayerName && !titleSlot.solvedByPlayerName && (
+          <div className="bg-orange-500/10 border border-orange-500/20 rounded-xl px-3 py-2 text-center">
+            <p className="text-orange-300 text-sm font-semibold">
+              🔒 <span className="font-black">{titleSlot.lockedByPlayerName}</span> darf den Titel raten
+            </p>
+          </div>
+        )}
+        {!iAmLockedArtist && artistSlot.lockedByPlayerName && !artistSlot.solvedByPlayerName && (
+          <div className="bg-orange-500/10 border border-orange-500/20 rounded-xl px-3 py-2 text-center">
+            <p className="text-orange-300 text-sm font-semibold">
+              🔒 <span className="font-black">{artistSlot.lockedByPlayerName}</span> darf den Interpreten raten
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Buzzer buttons — stacked, full width, finger-friendly */}
+      <div className="flex flex-col gap-3">
+        <button
+          onClick={() => onBuzz("title")}
+          disabled={titleDisabled}
+          className={`w-full min-h-16 rounded-2xl font-black text-xl transition-all active:scale-95 ${
+            titleDisabled
+              ? "bg-white/5 border border-white/10 text-white/20 cursor-not-allowed"
+              : "bg-green-500 hover:bg-green-400 text-white shadow-xl shadow-green-500/30"
+          }`}
+        >
+          {titleSlot.solvedByPlayerName
+            ? `🎯 Titel ✓ (${titleSlot.solvedByPlayerName})`
+            : titleSlot.lockedByPlayerName
+            ? `🔒 Titel — ${titleSlot.lockedByPlayerName} rät`
+            : "🎯 Buzz Titel"}
+        </button>
+        <button
+          onClick={() => onBuzz("artist")}
+          disabled={artistDisabled}
+          className={`w-full min-h-16 rounded-2xl font-black text-xl transition-all active:scale-95 ${
+            artistDisabled
+              ? "bg-white/5 border border-white/10 text-white/20 cursor-not-allowed"
+              : "bg-blue-500 hover:bg-blue-400 text-white shadow-xl shadow-blue-500/30"
+          }`}
+        >
+          {artistSlot.solvedByPlayerName
+            ? `🎵 Interpret ✓ (${artistSlot.solvedByPlayerName})`
+            : artistSlot.lockedByPlayerName
+            ? `🔒 Interpret — ${artistSlot.lockedByPlayerName} rät`
+            : "🎵 Buzz Interpret"}
+        </button>
+      </div>
+
+      {/* Rejected feedback */}
+      {(titleSlot.iAmRejected || artistSlot.iAmRejected) && (
+        <p className="text-red-400/80 text-sm font-semibold text-center">
+          {titleSlot.iAmRejected && artistSlot.iAmRejected
+            ? "❌ Bei Titel und Interpret falsch geraten"
+            : titleSlot.iAmRejected
+            ? "❌ Beim Titel falsch geraten"
+            : "❌ Beim Interpreten falsch geraten"}
+        </p>
+      )}
     </div>
   );
 }
@@ -1289,7 +1464,7 @@ function FinalRankingScreen({ players, isHost, playedSongsCount, totalSongsCount
 
 // ─── Round Summary Overlay ────────────────────────────────────────────────────
 
-function RoundSummaryOverlay({ song, roundDeltas, titleGuessers, artistGuessers, players, isHost, isLastRound, onNextRound }: {
+function RoundSummaryOverlay({ song, roundDeltas, titleGuessers, artistGuessers, players, isHost, isLastRound, gameMode, onNextRound }: {
   song: Song;
   roundDeltas: Record<string, number>;
   titleGuessers: string[];
@@ -1297,6 +1472,7 @@ function RoundSummaryOverlay({ song, roundDeltas, titleGuessers, artistGuessers,
   players: PublicRoomData["players"];
   isHost: boolean;
   isLastRound: boolean;
+  gameMode: "online" | "local";
   onNextRound: () => void;
 }) {
   const sorted = [...players].sort((a, b) => b.score - a.score);
@@ -1331,10 +1507,12 @@ function RoundSummaryOverlay({ song, roundDeltas, titleGuessers, artistGuessers,
           </div>
 
           {/* Who guessed what */}
-          {(titleGuessers.length > 0 || artistGuessers.length > 0) && (
+          {(gameMode === "local" || titleGuessers.length > 0 || artistGuessers.length > 0) && (
             <div className="grid grid-cols-2 gap-3">
               <div className="bg-green-500/10 border border-green-500/20 rounded-xl p-3">
-                <p className="text-green-400 text-xs font-bold uppercase tracking-widest mb-2">🎯 Titel erkannt</p>
+                <p className="text-green-400 text-xs font-bold uppercase tracking-widest mb-2">
+                  🎯 {gameMode === "local" ? "Titel gelöst" : "Titel erkannt"}
+                </p>
                 {titleGuessers.length > 0 ? (
                   <ul className="space-y-1">
                     {titleGuessers.map((name) => (
@@ -1342,11 +1520,15 @@ function RoundSummaryOverlay({ song, roundDeltas, titleGuessers, artistGuessers,
                     ))}
                   </ul>
                 ) : (
-                  <p className="text-white/30 text-xs italic">Niemand</p>
+                  <p className="text-white/30 text-xs italic">
+                    {gameMode === "local" ? "Nicht gelöst" : "Niemand"}
+                  </p>
                 )}
               </div>
               <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-3">
-                <p className="text-blue-400 text-xs font-bold uppercase tracking-widest mb-2">🎵 Interpret erkannt</p>
+                <p className="text-blue-400 text-xs font-bold uppercase tracking-widest mb-2">
+                  🎵 {gameMode === "local" ? "Interpret gelöst" : "Interpret erkannt"}
+                </p>
                 {artistGuessers.length > 0 ? (
                   <ul className="space-y-1">
                     {artistGuessers.map((name) => (
@@ -1354,7 +1536,9 @@ function RoundSummaryOverlay({ song, roundDeltas, titleGuessers, artistGuessers,
                     ))}
                   </ul>
                 ) : (
-                  <p className="text-white/30 text-xs italic">Niemand</p>
+                  <p className="text-white/30 text-xs italic">
+                    {gameMode === "local" ? "Nicht gelöst" : "Niemand"}
+                  </p>
                 )}
               </div>
             </div>

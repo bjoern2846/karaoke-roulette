@@ -24,6 +24,9 @@ import {
   reconnectPlayer,
   autoEndRound,
   resetSongHistory,
+  setGameMode,
+  handleBuzz,
+  handleJudgeBuzz,
   type Room,
 } from "./roomManager";
 
@@ -308,6 +311,35 @@ app.prepare().then(() => {
       socket.join(data.roomCode);
       broadcastRoom(io, room);
       socket.emit("reconnectSuccess", getRoomData(room, socket.id));
+    });
+
+    // ── setGameMode ───────────────────────────────────────────────────────────
+    socket.on("setGameMode", (data: { code: string; mode: "online" | "local" }) => {
+      const room = getRoom(data.code);
+      if (!room) return;
+      const host = room.players.find((p) => p.isHost);
+      if (host?.id !== socket.id) return;
+      const updated = setGameMode(data.code, data.mode);
+      if (updated) broadcastRoom(io, updated);
+    });
+
+    // ── buzz ──────────────────────────────────────────────────────────────────
+    socket.on("buzz", (data: { roomCode: string; type: "title" | "artist" }) => {
+      const result = handleBuzz(data.roomCode, socket.id, data.type);
+      if (!result || !result.valid) return;
+      broadcastRoom(io, result.room);
+    });
+
+    // ── judgeBuzz ─────────────────────────────────────────────────────────────
+    socket.on("judgeBuzz", (data: { roomCode: string; type: "title" | "artist"; correct: boolean }) => {
+      const result = handleJudgeBuzz(data.roomCode, socket.id, data.type, data.correct);
+      if (!result) return;
+      if (result.autoEnd) {
+        stopTimer(data.roomCode);
+        const endData = getEndRoundData(result.room);
+        io.to(data.roomCode).emit("roundEnded", endData);
+      }
+      broadcastRoom(io, result.room);
     });
 
     // ── disconnect ────────────────────────────────────────────────────────────
