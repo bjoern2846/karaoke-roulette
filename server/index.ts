@@ -314,14 +314,41 @@ app.prepare().then(() => {
     });
 
     // ── setGameMode ───────────────────────────────────────────────────────────
-    socket.on("setGameMode", (data: { code: string; mode: "online" | "local" }) => {
-      const room = getRoom(data.code);
-      if (!room) return;
-      const host = room.players.find((p) => p.isHost);
-      if (host?.id !== socket.id) return;
-      const updated = setGameMode(data.code, data.mode);
-      if (updated) broadcastRoom(io, updated);
-    });
+    socket.on(
+      "setGameMode",
+      (
+        data: { code: string; mode: "online" | "local" },
+        cb?: (res: { ok?: boolean; error?: string }) => void
+      ) => {
+        console.log(`[setGameMode] received code=${data?.code} mode=${data?.mode} from=${socket.id}`);
+        const ack = (res: { ok?: boolean; error?: string }) => {
+          if (typeof cb === "function") cb(res);
+        };
+
+        const room = getRoom(data?.code);
+        if (!room) {
+          console.log(`[setGameMode] FAIL: room not found (${data?.code})`);
+          return ack({ error: "Raum nicht gefunden" });
+        }
+        if (room.phase !== "lobby") {
+          console.log(`[setGameMode] FAIL: phase=${room.phase}, not lobby`);
+          return ack({ error: "Modus nur in der Lobby änderbar" });
+        }
+        const host = room.players.find((p) => p.isHost);
+        if (host?.id !== socket.id) {
+          console.log(`[setGameMode] FAIL: not host (socket=${socket.id} host=${host?.id})`);
+          return ack({ error: "Nur Host kann Modus ändern" });
+        }
+        const updated = setGameMode(data.code, data.mode);
+        if (!updated) {
+          console.log(`[setGameMode] FAIL: setGameMode returned null`);
+          return ack({ error: "Modus konnte nicht geändert werden" });
+        }
+        console.log(`[setGameMode] OK room=${data.code} gameMode=${updated.gameMode}`);
+        broadcastRoom(io, updated);
+        ack({ ok: true });
+      }
+    );
 
     // ── buzz ──────────────────────────────────────────────────────────────────
     socket.on("buzz", (data: { roomCode: string; type: "title" | "artist" }) => {
@@ -363,6 +390,7 @@ app.prepare().then(() => {
   });
 
   httpServer.listen(port, () => {
-    console.log(`\n🎤 Karaoke Roulette ready on http://${hostname}:${port}\n`);
+    console.log(`\n🎤 Karaoke Roulette ready on http://${hostname}:${port}`);
+    console.log(`   BUILD: ${new Date().toISOString()} — handlers: setGameMode, buzz, judgeBuzz registered\n`);
   });
 });

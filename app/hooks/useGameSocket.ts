@@ -82,6 +82,7 @@ export function useGameSocket(): UseGameSocketReturn {
     function onDisconnect() { setIsConnected(false); }
 
     function onRoomUpdated(data: PublicRoomData) {
+      console.log("[roomUpdated] gameMode=", data.gameMode, "phase=", data.phase);
       setRoom(data);
 
       if (!data.currentRound || data.currentRound.phase !== "ended") {
@@ -249,8 +250,13 @@ export function useGameSocket(): UseGameSocketReturn {
 
   const setGameMode = useCallback((mode: "online" | "local") => {
     const r = roomRef.current;
-    if (!r) return;
-    getSocket().emit("setGameMode", { code: r.code, mode });
+    if (!r) { console.warn("[setGameMode] no room ref"); return; }
+    const payload = { code: r.code, mode };
+    console.log("[setGameMode] emit", payload);
+    getSocket().emit("setGameMode", payload, (res: { ok?: boolean; error?: string }) => {
+      console.log("[setGameMode] ack", res);
+      if (res?.error) setError(res.error);
+    });
   }, []);
 
   const buzz = useCallback((type: "title" | "artist") => {
