@@ -317,17 +317,26 @@ app.prepare().then(() => {
     socket.on(
       "setGameMode",
       (
-        data: { code: string; mode: "online" | "local" },
+        data: { roomCode?: string; gameMode?: "online" | "local"; code?: string; mode?: "online" | "local" },
         cb?: (res: { ok?: boolean; error?: string }) => void
       ) => {
-        console.log(`[setGameMode] received code=${data?.code} mode=${data?.mode} from=${socket.id}`);
+        console.log(`[setGameMode] received`, data, `from=${socket.id}`);
         const ack = (res: { ok?: boolean; error?: string }) => {
           if (typeof cb === "function") cb(res);
         };
 
-        const room = getRoom(data?.code);
+        // Accept both { roomCode, gameMode } (canonical) and { code, mode } (legacy)
+        const roomCode = data?.roomCode ?? data?.code;
+        const gameMode = data?.gameMode ?? data?.mode;
+
+        if (!roomCode || !gameMode) {
+          console.warn(`[setGameMode] FAIL: invalid payload`, data);
+          return ack({ ok: false, error: "Invalid payload" });
+        }
+
+        const room = getRoom(roomCode);
         if (!room) {
-          console.log(`[setGameMode] FAIL: room not found (${data?.code})`);
+          console.log(`[setGameMode] FAIL: room not found (${roomCode})`);
           return ack({ error: "Raum nicht gefunden" });
         }
         if (room.phase !== "lobby") {
@@ -339,12 +348,12 @@ app.prepare().then(() => {
           console.log(`[setGameMode] FAIL: not host (socket=${socket.id} host=${host?.id})`);
           return ack({ error: "Nur Host kann Modus ändern" });
         }
-        const updated = setGameMode(data.code, data.mode);
+        const updated = setGameMode(roomCode, gameMode);
         if (!updated) {
           console.log(`[setGameMode] FAIL: setGameMode returned null`);
           return ack({ error: "Modus konnte nicht geändert werden" });
         }
-        console.log(`[setGameMode] OK room=${data.code} gameMode=${updated.gameMode}`);
+        console.log(`[setGameMode] OK room=${roomCode} gameMode=${updated.gameMode}`);
         broadcastRoom(io, updated);
         ack({ ok: true });
       }

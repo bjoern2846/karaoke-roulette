@@ -251,7 +251,7 @@ export function useGameSocket(): UseGameSocketReturn {
   const setGameMode = useCallback((mode: "online" | "local") => {
     const r = roomRef.current;
     if (!r) { console.warn("[setGameMode] no room ref"); return; }
-    const payload = { code: r.code, mode };
+    const payload = { roomCode: r.code, gameMode: mode };
     console.log("[setGameMode] emit", payload);
     getSocket().emit("setGameMode", payload, (res: { ok?: boolean; error?: string }) => {
       console.log("[setGameMode] ack", res);
