@@ -21,6 +21,9 @@ import {
   reconnectPlayer,
   autoEndRound,
   resetSongHistory,
+  setGameMode,
+  handleBuzz,
+  handleJudgeBuzz,
   type Room,
 } from "./roomManager";
 
@@ -271,10 +274,75 @@ io.on("connection", (socket) => {
     }, 300_000); // 5 min grace — mobile WiFi + screen-lock disconnects need extra room
     disconnectTimers.set(key, t);
   });
+
+  // ── setGameMode ─────────────────────────────────────────────────────────────
+  socket.on(
+    "setGameMode",
+    (
+      data: { roomCode?: string; gameMode?: "online" | "local"; code?: string; mode?: "online" | "local" },
+      cb?: (res: { ok?: boolean; error?: string }) => void
+    ) => {
+      console.log(`[setGameMode] received`, data, `from=${socket.id}`);
+      const ack = (res: { ok?: boolean; error?: string }) => {
+        if (typeof cb === "function") cb(res);
+      };
+
+      const roomCode = data?.roomCode ?? data?.code;
+      const gameMode = data?.gameMode ?? data?.mode;
+
+      if (!roomCode || !gameMode) {
+        console.warn(`[setGameMode] FAIL: invalid payload`, data);
+        return ack({ ok: false, error: "Invalid payload" });
+      }
+      const room = getRoom(roomCode);
+      if (!room) {
+        console.log(`[setGameMode] FAIL: room not found (${roomCode})`);
+        return ack({ error: "Raum nicht gefunden" });
+      }
+      if (room.phase !== "lobby") {
+        console.log(`[setGameMode] FAIL: phase=${room.phase}`);
+        return ack({ error: "Modus nur in der Lobby änderbar" });
+      }
+      const host = room.players.find((p) => p.isHost);
+      if (host?.id !== socket.id) {
+        console.log(`[setGameMode] FAIL: not host (socket=${socket.id} host=${host?.id})`);
+        return ack({ error: "Nur Host kann Modus ändern" });
+      }
+      const updated = setGameMode(roomCode, gameMode);
+      if (!updated) {
+        console.log(`[setGameMode] FAIL: setGameMode returned null`);
+        return ack({ error: "Modus konnte nicht geändert werden" });
+      }
+      console.log(`[setGameMode] OK room=${roomCode} gameMode=${updated.gameMode}`);
+      broadcastRoom(updated);
+      ack({ ok: true });
+    }
+  );
+
+  // ── buzz ────────────────────────────────────────────────────────────────────
+  socket.on("buzz", (data: { roomCode: string; type: "title" | "artist" }) => {
+    const result = handleBuzz(data.roomCode, socket.id, data.type);
+    if (!result || !result.valid) return;
+    broadcastRoom(result.room);
+  });
+
+  // ── judgeBuzz ───────────────────────────────────────────────────────────────
+  socket.on("judgeBuzz", (data: { roomCode: string; type: "title" | "artist"; correct: boolean }) => {
+    const result = handleJudgeBuzz(data.roomCode, socket.id, data.type, data.correct);
+    if (!result) return;
+    if (result.autoEnd) {
+      stopTimer(data.roomCode);
+      const endData = getEndRoundData(result.room);
+      io.to(data.roomCode).emit("roundEnded", endData);
+    }
+    broadcastRoom(result.room);
+  });
+
 });
 
 // ─── Listen ───────────────────────────────────────────────────────────────────
 
 httpServer.listen(port, "0.0.0.0", () => {
-  console.log(`\n🎤 Karaoke Roulette socket server ready on port ${port}\n`);
+  console.log(`\n🎤 Karaoke Roulette socket server ready on port ${port}`);
+  console.log(`   BUILD: ${new Date().toISOString()} — handlers: setGameMode, buzz, judgeBuzz registered\n`);
 });
